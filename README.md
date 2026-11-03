@@ -37,7 +37,6 @@ ai-pose-studio/
 │   │   └── portrait-zh.json
 │   └── scripts/
 │       └── studio_cli.py            # 检索、拼图合成与多通道 CDN 缓存 CLI
-└── sync_from_local_owned.py         # 本地新生成自有版权图一键转 WebP + 打包 + 推送脚本
 ```
 
 ---

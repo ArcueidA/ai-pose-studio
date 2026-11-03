@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.0.0)
-100% Original Copyrighted Assets | Author: tccc (ArcueidA)
+100% Original Copyrighted Assets | Author: tcccE
 
 Commands:
   stats   : View catalog counts, category breakdown, and 15 style presets
@@ -289,7 +289,7 @@ def cmd_stats(_args: argparse.Namespace) -> None:
     report: Dict[str, Any] = {
         "skill": "ai-pose-outfit-studio",
         "version": "1.0.0",
-        "author": "tccc",
+        "author": "tcccE",
         "copyright": "100% Original Owned Assets",
         "cache_dir": str(CACHE_DIR),
         "catalogs": {},

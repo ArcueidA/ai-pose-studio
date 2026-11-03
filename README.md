@@ -1,7 +1,7 @@
 # AI Pose & Outfit Reference Studio (`ai-pose-studio`)
 
 > **100% 原创自有版权 3D 动作白模 · 四季穿搭人台 · 二次元设定集 · 正脸发型模特参考资产库**  
-> Author: **唐家成 (`ArcueidA`)** | WorkBuddy Skill Package: `ai-pose-outfit-studio`
+> Author: **tccc (`ArcueidA`)** | WorkBuddy Skill Package: `ai-pose-outfit-studio`
 
 ---
 

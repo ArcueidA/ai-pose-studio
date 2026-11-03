@@ -6,7 +6,7 @@ description: 内置1900+组100%原创3D动作姿势白模（含正面/侧面/斜
 description_zh: 提供1900+组原创3D动作白模（含5机位与深度图）、四季穿搭人台、二次元服装设定与正脸发型模特库，一键拼接三合一参考图并直出商业级人像穿搭大图。
 description_en: Built-in 1,900+ original 3D pose mannequins (5 angles & depth maps), seasonal outfits, anime costume sheets, and portrait hairstyle models with 3-in-1 reference stitching and AI photo generation.
 version: 1.0.0
-author: "唐家成"
+author: "tccc"
 allowed-tools: Bash, Read, ViewImage, ImageGen, present_files
 examples_zh:
 - "帮我挑一套秋季风衣穿搭、一位清冷感长发模特和斜侧站姿，合成三合一参考图并直接生成写实街拍大片"

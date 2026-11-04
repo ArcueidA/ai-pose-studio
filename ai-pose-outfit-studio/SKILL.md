@@ -2,10 +2,10 @@
 name: ai-pose-outfit-studio
 display_name: AI人像姿势与穿搭造型工坊
 display_name_en: AI Pose & Outfit Reference Studio
-description: 内置1900+组100%原创3D动作姿势白模（含正面/侧面/斜侧/俯视/仰视5机位与ControlNet深度图）、四季时装与二次元设定集人台、正脸发型模特参考库，支持多维检索、一键合成三合一参考拼图、生成中英双语提示词并联动生图工具直出商业级人像穿搭大图。触发词：姿势参考、人像姿势、3D白模、穿搭参考、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
-description_zh: 提供1900+组原创3D动作白模（含5机位与深度图）、四季穿搭人台、二次元服装设定与正脸发型模特库，一键拼接三合一参考图并直出商业级人像穿搭大图。
-description_en: Built-in 1,900+ original 3D pose mannequins (5 angles & depth maps), seasonal outfits, anime costume sheets, and portrait hairstyle models with 3-in-1 reference stitching and AI photo generation.
-version: 1.0.0
+description: 内置3760+组100%原创3D动作姿势白模（含正面/侧面/斜侧/俯视/仰视5机位与ControlNet深度图）、四季时装与二次元设定集人台、正脸发型模特参考库，支持多维检索、一键合成三合一参考拼图、生成中英双语提示词并联动生图工具直出商业级人像穿搭大图。触发词：姿势参考、人像姿势、3D白模、穿搭参考、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
+description_zh: 提供3760+组原创3D动作白模（含5机位与深度图）、四季穿搭人台、二次元服装设定与正脸发型模特库，一键拼接三合一参考图并直出商业级人像穿搭大图。
+description_en: Built-in 3,760+ original 3D pose mannequins (5 angles & depth maps), seasonal outfits, anime costume sheets, and portrait hairstyle models with 3-in-1 reference stitching and AI photo generation.
+version: 1.1.0
 author: "tcccE"
 allowed-tools: Bash, Read, ViewImage, ImageGen, present_files
 examples_zh:

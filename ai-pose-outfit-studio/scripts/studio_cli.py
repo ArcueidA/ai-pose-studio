@@ -1,17 +1,18 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.0.0)
-100% Original Copyrighted Assets | Author: tcccE
+AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.4.0)
+100% Original Copyrighted Assets + 288 Live Motion Previews | Author: tcccE
 
 Commands:
-  stats   : View catalog counts, category breakdown, and 15 style presets
-  search  : Multi-dimensional filtering across pose / costume / anime / portrait
-  detail  : Inspect full metadata and prompt tags for specific asset ID(s)
-  random  : Randomly pick matching assets for inspiration
-  fetch   : Download / resolve asset image(s) (and depth map) to local cache
-  recipe  : Combine Pose + Costume + Portrait (IDs or local files) into a 3-in-1 composite reference image & bilingual prompt
-  preload : Batch warm-up local asset cache with multi-threading
+  stats     : View catalog counts, category breakdown, and 15 style presets
+  search    : Multi-dimensional filtering across pose / costume / anime / portrait
+  detail    : Inspect full metadata and prompt tags for specific asset ID(s)
+  random    : Randomly pick matching assets for inspiration
+  fetch     : Download / resolve asset image(s) (depth map / live preview WebP) to local cache
+  recipe    : Combine Pose + Costume + Portrait into start/end 3-in-1 reference sheets & Scene-First prompts
+  pack-live : Synthesize Animated Live Preview WebP & True XMP Motion Photo (.jpg + .mp4)
+  preload   : Batch warm-up local asset cache with multi-threading
 """
 
 import argparse
@@ -357,6 +358,7 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
         "标题": get_item_title(item),
     }
     if atype == "pose":
+        base_group = str(aid).rsplit("_", 1)[0] if "_" in str(aid) else str(aid)
         base.update(
             {
                 "体系": item.get("体系", ""),
@@ -365,6 +367,8 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
                 "角度": item.get("角度", ""),
                 "图片": item.get("图片") or f"assets/pose/{aid}.webp",
                 "深度图": item.get("深度图") or f"assets/pose_depth/{aid}.webp",
+                "实况预览": item.get("实况预览") or f"assets/pose_live/{base_group}.webp",
+                "实况尾帧ID": item.get("实况尾帧ID", ""),
             }
         )
     elif atype in ("costume", "anime"):
@@ -392,9 +396,9 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
 def cmd_stats(_args: argparse.Namespace) -> None:
     report: Dict[str, Any] = {
         "skill": "ai-pose-outfit-studio",
-        "version": "1.0.0",
+        "version": "1.4.0",
         "author": "tcccE",
-        "copyright": "100% Original Owned Assets",
+        "copyright": "100% Original Owned Assets (4,785 Static + 1,439 Depth + 288 Live Motion Previews)",
         "cache_dir": str(CACHE_DIR),
         "catalogs": {},
         "total_assets": 0,
@@ -551,18 +555,32 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     results = []
     for raw_id in args.ids:
         atype, item = find_item_by_id(raw_id, args.type)
-        if args.depth and atype == "pose":
+        if getattr(args, "live_preview", False) and atype == "pose":
+            base_group = str(item["id"]).rsplit("_", 1)[0]
+            rel_img = item.get("实况预览") or f"assets/pose_live/{base_group}.webp"
+            local_img = resolve_or_download_relpath(rel_img)
+            final_img = local_img
+            if out_dir:
+                out_dir.mkdir(parents=True, exist_ok=True)
+                final_img = out_dir / local_img.name
+                shutil.copy2(local_img, final_img)
+            mode_str = "live_preview"
+        elif args.depth and atype == "pose":
             rel_img = item.get("深度图") or f"assets/pose_depth/{item['id']}.webp"
+            local_img = resolve_or_download_relpath(rel_img)
+            final_img = process_fetched_image(local_img, args.flip, args.resize_mode, out_dir)
+            mode_str = "depth"
         else:
             rel_img = item.get("图片") or f"assets/{atype}/{item['id']}.webp"
-        local_img = resolve_or_download_relpath(rel_img)
-        final_img = process_fetched_image(local_img, args.flip, args.resize_mode, out_dir)
+            local_img = resolve_or_download_relpath(rel_img)
+            final_img = process_fetched_image(local_img, args.flip, args.resize_mode, out_dir)
+            mode_str = "normal"
 
         entry: Dict[str, Any] = {
             "id": item["id"],
             "type": atype,
             "标题": get_item_title(item),
-            "mode": "depth" if (args.depth and atype == "pose") else "normal",
+            "mode": mode_str,
             "local_image": str(final_img),
         }
         results.append(entry)
@@ -889,23 +907,70 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             "_low": ("_front", "镜头由微仰拍平滑过渡至平视正面，模特身姿舒展自然呼吸"),
         }
         end_pose_id = None
+        end_pose_item = None
         transition_zh = "模特保持站姿自然呼吸、眨眼1次并露出浅笑，微风轻拂发丝与衣摆"
         actual_pose_id = str(pose_item_resolved["id"]) if pose_item_resolved else ""
+        live_preview_local = None
+
         if actual_pose_id:
+            base_group = actual_pose_id.rsplit("_", 1)[0] if "_" in actual_pose_id else actual_pose_id
+            rel_live_webp = (pose_item_resolved or {}).get("实况预览") or f"assets/pose_live/{base_group}.webp"
+            try:
+                live_preview_local = str(resolve_or_download_relpath(rel_live_webp))
+            except Exception:
+                live_preview_local = None
+
             for suf, (target_suf, t_desc) in next_angle_map.items():
                 if actual_pose_id.endswith(suf):
                     cand_id = actual_pose_id[: -len(suf)] + target_suf
                     found_cand = exact_find_item_by_id(cand_id, "pose")
                     if found_cand:
                         end_pose_id = cand_id
+                        end_pose_item = found_cand[1]
                         transition_zh = t_desc
                     break
+
+        # Build End-Frame Composite Reference Sheet (locks Panel 1 & Panel 2, swaps Panel 3 to end_pose_id)
+        end_composite_path = None
+        end_frame_prompt_zh = None
+        if end_pose_id and end_pose_item:
+            try:
+                _, _, end_pose_img_path = resolve_slot_input(end_pose_id, "pose", use_depth=args.depth)
+                end_canvas = canvas.copy()
+                end_draw = ImageDraw.Draw(end_canvas)
+                for p_idx, (p_lbl, p_tp, _p_it, _p_path) in enumerate(panels):
+                    if p_tp == "pose":
+                        x0 = pad + p_idx * (card_w + pad)
+                        y0 = header_h
+                        with Image.open(end_pose_img_path) as eim:
+                            efitted = ImageOps.fit(eim.convert("RGB"), (card_w, card_h), method=Image.Resampling.BILINEAR)
+                            end_canvas.paste(efitted, (x0, y0))
+                        end_draw.rectangle([x0, y0, x0 + card_w, y0 + 38], fill=(15, 23, 42))
+                        end_draw.text((x0 + 10, y0 + 8), f"{p_lbl}  {end_pose_id} (实况尾帧)", fill=(250, 204, 21), font=sub_font)
+                        etitle = get_item_title(end_pose_item)
+                        end_draw.rectangle([x0, y0 + card_h, x0 + card_w, y0 + card_h + footer_h - 6], fill=(255, 255, 255))
+                        end_draw.rectangle([x0, y0, x0 + card_w, y0 + card_h + footer_h - 6], outline=(203, 213, 225), width=2)
+                        end_draw.text((x0 + 10, y0 + card_h + 14), etitle[:26], fill=(30, 41, 59), font=meta_font)
+                end_out = out_path.with_name(f"{out_path.stem}_end_frame.png")
+                end_canvas.save(end_out, format="PNG", compress_level=3)
+                end_composite_path = str(end_out)
+                end_ang = str(end_pose_item.get("角度") or "斜侧")
+                end_frame_prompt_zh = (
+                    zh_prompt.replace(f"（{shot_zh}，{angle_zh}）", f"（{shot_zh}，{end_ang}·实况连续尾帧）")
+                    + f"\n【实况连续尾帧锁死要求】：本图作为实况照片（Live Photo）的第 2.5 秒连续尾帧，人物面部五官发型、全身服饰细节、实景背景与环境光色温必须与首帧 100% 保持同一时空恒定，仅身体姿势自然过渡至【{end_pose_id}（{end_ang}机位：{transition_zh}）】。"
+                )
+            except Exception:
+                pass
+
         live_info = {
             "enabled": True,
             "duration_sec": "2.0s - 3.0s (iPhone Live Photo / 小红书抖音实况标准时长)",
+            "live_pose_preview_webp": live_preview_local,
             "start_composite_image": str(out_path),
             "end_pose_id": end_pose_id,
+            "end_composite_image": end_composite_path,
             "transition_action": transition_zh,
+            "end_frame_prompt_zh": end_frame_prompt_zh,
             "chatgpt_live_prompt_zh": (
                 f"{zh_prompt}\n"
                 f"【Live Photo 实况微动附加指令】：生成具有 iPhone 实况照片（Live Photo）呼吸感的动态实况效果。"
@@ -919,6 +984,10 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             "video_i2v_prompt_en": (
                 f"2.5s realistic iPhone Live Photo, subtle natural micro-motion: {subject_zh}, gentle breeze blowing hair and fabric folds, "
                 f"natural eye blink and soft smile, subtle handheld camera breathing motion, seamless environment lighting, strict facial and outfit consistency, 60fps smooth motion."
+            ),
+            "workflow_for_non_live_models": (
+                "若当前模型无原生实况按钮：1) 直接用 ImageGen 生成首帧成片（或分别用 start_composite_image 与 end_composite_image 生成首尾两张同款成片）；"
+                "2) 调用 VideoGen(image=首帧成片, last_image=尾帧成片, prompt=video_i2v_prompt_zh) 生成2.5s微动MP4，或运行 `studio_cli.py pack-live --photo 首帧.png --end-photo 尾帧.png` 零成本合成实况动图与真·Motion Photo文件。"
             ),
         }
 
@@ -940,6 +1009,159 @@ def cmd_recipe(args: argparse.Namespace) -> None:
     print(
         json.dumps(
             result_payload,
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
+def inject_motion_photo_xmp(jpeg_bytes: bytes, mp4_bytes: bytes) -> bytes:
+    """
+    Inject Google Camera / Android / Xiaohongshu standard MotionPhoto XMP metadata into JPEG APP1
+    and append the MP4 video stream at the end of the file.
+    """
+    mp4_len = len(mp4_bytes)
+    xmp_str = (
+        '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">'
+        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
+        '<rdf:Description rdf:about="" '
+        'xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" '
+        'xmlns:Camera="http://ns.google.com/photos/1.0/camera/" '
+        'xmlns:Container="http://ns.google.com/photos/1.0/container/" '
+        'xmlns:Item="http://ns.google.com/photos/1.0/container/item/" '
+        'GCamera:MicroVideo="1" '
+        'GCamera:MicroVideoVersion="1" '
+        f'GCamera:MicroVideoOffset="{mp4_len}" '
+        'GCamera:MicroVideoPresentationTimestampUs="0" '
+        'Camera:MotionPhoto="1" '
+        'Camera:MotionPhotoVersion="1" '
+        'Camera:MotionPhotoPresentationTimestampUs="0">'
+        '<Container:Directory><rdf:Seq>'
+        '<rdf:li rdf:parseType="Resource">'
+        '<Item:Mime>image/jpeg</Item:Mime>'
+        '<Item:Semantic>Primary</Item:Semantic>'
+        '<Item:Length>0</Item:Length>'
+        '<Item:Padding>0</Item:Padding>'
+        '</rdf:li>'
+        '<rdf:li rdf:parseType="Resource">'
+        '<Item:Mime>video/mp4</Item:Mime>'
+        '<Item:Semantic>MotionPhoto</Item:Semantic>'
+        f'<Item:Length>{mp4_len}</Item:Length>'
+        '<Item:Padding>0</Item:Padding>'
+        '</rdf:li>'
+        '</rdf:Seq></Container:Directory>'
+        '</rdf:Description></rdf:RDF></x:xmpmeta>'
+    )
+    xmp_payload = b"http://ns.adobe.com/xap/1.0/\x00" + xmp_str.encode("utf-8")
+    seg_len = len(xmp_payload) + 2
+    app1_seg = b"\xff\xe1" + seg_len.to_bytes(2, "big") + xmp_payload
+
+    if jpeg_bytes[:2] != b"\xff\xd8":
+        raise ValueError("Invalid JPEG header")
+    return jpeg_bytes[:2] + app1_seg + jpeg_bytes[2:] + mp4_bytes
+
+
+def cmd_pack_live(args: argparse.Namespace) -> None:
+    """
+    Package a static model photo (+ optional end-frame photo or MP4 video) into:
+    1) Animated WebP Live Preview (*_live_preview.webp) with breathing camera motion
+    2) True XMP Motion Photo (*_motion_live.jpg) recognized by Android albums & Xiaohongshu Live Photo uploader
+    """
+    Image, ImageDraw, ImageFont, ImageOps = ensure_pillow()
+    from io import BytesIO
+
+    photo_path = Path(args.photo).resolve()
+    if not photo_path.exists():
+        raise FileNotFoundError(f"Primary photo not found: {photo_path}")
+
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else (CACHE_DIR / "live_outputs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = photo_path.stem
+
+    with Image.open(photo_path) as im0:
+        base_rgb = im0.convert("RGB")
+        w, h = base_rgb.size
+
+    # 1. Generate smooth breathing / keyframe Animated WebP preview
+    preview_webp = out_dir / f"{stem}_live_preview.webp"
+    frames = []
+    durations = []
+    prev_w, prev_h = min(w, 720), min(h, int(720 * h / max(1, w)))
+    f_start = base_rgb.resize((prev_w, prev_h), Image.Resampling.BILINEAR)
+
+    if args.end_photo and Path(args.end_photo).exists():
+        with Image.open(args.end_photo) as im1:
+            f_end = ImageOps.fit(im1.convert("RGB"), (prev_w, prev_h), method=Image.Resampling.BILINEAR)
+        steps = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 0.8, 0.6, 0.4, 0.2]
+        for s in steps:
+            blended = Image.blend(f_start, f_end, s)
+            frames.append(blended)
+            durations.append(480 if s in (0.0, 1.0) else 110)
+    else:
+        # Subtle handheld camera breathing & micro-zoom (1.00x -> 1.035x -> 1.00x)
+        scales = [1.0, 1.008, 1.016, 1.024, 1.032, 1.038, 1.032, 1.024, 1.016, 1.008]
+        for sc in scales:
+            cw, ch = int(prev_w / sc), int(prev_h / sc)
+            left = (prev_w - cw) // 2
+            top = int((prev_h - ch) * 0.35)  # Focus on upper-body/face center
+            cropped = f_start.crop((left, top, left + cw, top + ch)).resize((prev_w, prev_h), Image.Resampling.BILINEAR)
+            frames.append(cropped)
+            durations.append(360 if sc in (1.0, 1.038) else 110)
+
+    # Add subtle LIVE badge on preview WebP
+    font = load_cjk_font(ImageFont, 16)
+    stamped_frames = []
+    for fr in frames:
+        fc = fr.copy()
+        dr = ImageDraw.Draw(fc)
+        dr.rounded_rectangle([14, 14, 118, 42], radius=13, fill=(15, 23, 42))
+        dr.ellipse([24, 23, 34, 33], fill=(239, 68, 68))
+        dr.text((40, 17), "LIVE 实况", fill=(255, 255, 255), font=font)
+        stamped_frames.append(fc)
+
+    stamped_frames[0].save(
+        preview_webp,
+        format="WEBP",
+        save_all=True,
+        append_images=stamped_frames[1:],
+        duration=durations,
+        loop=0,
+        quality=82,
+        method=0,
+    )
+
+    # 2. If MP4/MOV video is provided, synthesize XMP Motion Photo (.jpg) + Douyin MP4 copy
+    motion_jpg_path = None
+    companion_mp4_path = None
+    if args.video and Path(args.video).exists():
+        video_path = Path(args.video).resolve()
+        mp4_bytes = video_path.read_bytes()
+        buf = BytesIO()
+        base_rgb.save(buf, format="JPEG", quality=94)
+        motion_bytes = inject_motion_photo_xmp(buf.getvalue(), mp4_bytes)
+        motion_jpg_path = out_dir / f"{stem}_motion_live.jpg"
+        motion_jpg_path.write_bytes(motion_bytes)
+
+        companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
+        if video_path != companion_mp4_path:
+            shutil.copy2(video_path, companion_mp4_path)
+
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "source_photo": str(photo_path),
+                "source_end_photo": str(Path(args.end_photo).resolve()) if args.end_photo else None,
+                "source_video": str(Path(args.video).resolve()) if args.video else None,
+                "live_preview_webp": str(preview_webp),
+                "motion_photo_jpg": str(motion_jpg_path) if motion_jpg_path else None,
+                "companion_mp4": str(companion_mp4_path) if companion_mp4_path else None,
+                "platform_guide": {
+                    "小红书/安卓相册": "直接上传或导入 motion_photo_jpg（内置GCamera/MotionPhoto双标准XMP视频流，自动点亮LIVE实况标）或companion_mp4",
+                    "抖音/快手图文实况": "在发布图文时直接勾选 companion_mp4 或 motion_photo_jpg 即可作为实况图文发布",
+                    "电脑端/对话内预览": "直接打开 live_preview_webp 查看循环动态实况效果",
+                },
+            },
             ensure_ascii=False,
             indent=2,
         )
@@ -977,7 +1199,7 @@ def cmd_preload(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="studio_cli.py",
-        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.0.0)",
+        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.4.0)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
@@ -1007,6 +1229,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument("ids", nargs="+", help="One or more Asset IDs (e.g. full_single_P001_front)")
     p_fetch.add_argument("--type", choices=["pose", "costume", "anime", "portrait"], default=None)
     p_fetch.add_argument("--depth", action="store_true", help="Fetch ControlNet depth map (for pose)")
+    p_fetch.add_argument("--live-preview", action="store_true", help="Fetch animated Live Photo motion preview WebP (for pose)")
     p_fetch.add_argument("--flip", action="store_true", help="Horizontally flip the fetched image")
     p_fetch.add_argument("--resize-mode", choices=["original", "crop", "pad"], default="original")
     p_fetch.add_argument("--out-dir", type=str, default=None, help="Optional directory to save processed image(s)")
@@ -1032,6 +1255,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_preload.add_argument("--limit", type=int, default=50)
     p_preload.add_argument("--workers", type=int, default=8)
 
+    p_pack_live = sub.add_parser("pack-live", help="Synthesize Animated Live Preview WebP & True XMP Motion Photo (.jpg + .mp4)")
+    p_pack_live.add_argument("--photo", required=True, type=str, help="Primary static model photo (.png/.jpg/.webp)")
+    p_pack_live.add_argument("--end-photo", default=None, type=str, help="Optional continuous end-frame photo for zero-cost motion interpolation")
+    p_pack_live.add_argument("--video", default=None, type=str, help="Optional 2-3s MP4/MOV video to embed into XMP Motion Photo (.jpg)")
+    p_pack_live.add_argument("--out-dir", default=None, type=str, help="Output directory for live assets")
+
     return parser
 
 
@@ -1046,6 +1275,7 @@ def main() -> None:
         "fetch": cmd_fetch,
         "recipe": cmd_recipe,
         "preload": cmd_preload,
+        "pack-live": cmd_pack_live,
     }
     dispatch[args.command](args)
 

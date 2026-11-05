@@ -2,12 +2,12 @@
 name: ai-pose-outfit-studio
 display_name: AI人像姿势与穿搭造型工坊
 display_name_en: AI Pose & Outfit Reference Studio
-description: 内置4785组100%原创3D动作姿势白模（含单人/双人正面、侧面、斜侧、俯视、仰视5机位与1439张ControlNet深度图）、四季时装与二次元设定集人台、正脸发型模特全量参考库，支持多维检索、一键合成三合一参考拼图、生成中英双语提示词并联动生图工具直出商业级人像穿搭大图。触发词：姿势参考、人像姿势、3D白模、穿搭参考、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
-description_zh: 提供4785组原创3D动作白模（含5机位与1439张深度图）、四季全品类穿搭人台、二次元服装设定与正脸发型模特全量库，一键拼接三合一参考图并直出商业级人像穿搭大图。
-description_en: Complete 4,785 original 3D pose mannequins (5 angles & 1,439 depth maps), full-category outfits, anime costume sheets, and portrait hairstyle models with 3-in-1 reference stitching and AI photo generation.
-version: 1.3.0
+description: 内置4785组100%原创3D动作姿势白模（含单人/双人正面、侧面、斜侧、俯视、仰视5机位、1439张ControlNet深度图与288组动态实况预览图）、四季时装与二次元设定集人台、正脸发型模特全量参考库，支持多维检索、一键合成首尾帧三合一参考拼图、生成中英双语提示词、联动生图/生视频工具并打包真·Motion Photo实况照片。触发词：姿势参考、人像姿势、3D白模、穿搭参考、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、实况图、Live Photo、pose studio。
+description_zh: 提供4785组原创3D动作白模（含5机位、1439张深度图与288组动态实况素材）、四季穿搭人台、二次元设定与正脸发型库，一键拼接首尾帧参考板并直出商业级人像穿搭大图与实况照片。
+description_en: Complete 4,785 original 3D pose mannequins (5 angles, 1,439 depth maps & 288 animated live previews), full-category outfits, anime costume sheets, and portrait hairstyle models with start/end frame stitching and Motion Photo synthesis.
+version: 1.4.0
 author: "tcccE"
-allowed-tools: Bash, Read, ViewImage, ImageGen, present_files
+allowed-tools: Bash, Read, ViewImage, ImageGen, VideoGen, present_files
 examples_zh:
 - "帮我挑一套秋季风衣穿搭、一位清冷感长发模特和斜侧站姿，合成三合一参考图并直接生成写实街拍大片"
 - "检索5机位全套『后仰坐姿』3D白模与Depth深度图，生成角色动作参考拼图与SD/Flux双语提示词"
@@ -44,11 +44,12 @@ python "<SKILL_DIR>/scripts/studio_cli.py" search <关键词> --type <all|pose|c
 
 ### 第二步：单图拉取或三合一参考拼图合成 (`fetch` / `recipe`)
 
-1. **仅需单张或多张动作白模 / 深度图 / 穿搭参考图时 (`fetch`)**：
+1. **仅需单张或多张动作白模 / 深度图 / 动态实况预览 / 穿搭参考图时 (`fetch`)**：
    ```bash
-   python "<SKILL_DIR>/scripts/studio_cli.py" fetch <ID_1> <ID_2> [--depth] [--flip] [--resize-mode <original|crop|pad>]
+   python "<SKILL_DIR>/scripts/studio_cli.py" fetch <ID_1> <ID_2> [--depth] [--live-preview] [--flip] [--resize-mode <original|crop|pad>]
    ```
    - `--depth`：将 3D 姿势白模一键切换为 ControlNet Depth 深度图；
+   - `--live-preview`：拉取该动作对应的 **3D 五机位循环动态实况预览图 (`assets/pose_live/*.webp`)**；
    - `--flip`：水平镜像翻转参考图。
 
 2. **需要组合「人物脸型 + 服装造型 + 动作姿势」并出片时 (`recipe` 一键极速配单)**：
@@ -64,9 +65,24 @@ python "<SKILL_DIR>/scripts/studio_cli.py" search <关键词> --type <all|pose|c
      [--scene "可选自定义场景；若不传则自动根据服装季节与品类匹配真实实景与全局光影"]
    ```
    - 该命令内置 **Scene-First 实景环境与全局光影融合引擎 (`build_smart_scene_and_lighting`)**，会自动根据穿搭季节/品类推导匹配的真实三维实景、环境主光源色温、发丝边缘逆光（Rim Light）、脚底地面接触阴影（Contact Shadow）与 85mm f/1.8 光学浅景深，彻底消除“人物与背景割裂像抠图”的问题。
-   - 若加上 `--live`，还会自动匹配同动作的相邻连续机位（如正面→斜侧30度），输出专供 **ChatGPT 实况图（Live Photo）** 与 **图生视频（VideoGen / 可灵 / 即梦）** 的 2.5 秒微动防崩坏指令。
+   - **【面向无原生实况功能的模型 · 首尾帧双锚点与实况打包 (`--live` & `pack-live`)】**：
+     - 当加上 `--live` 时，`recipe` 会同时输出：
+       1. `live_pose_preview_webp`：该动作的 3D 动态循环预览动图；
+       2. `start_composite_image`（首帧三合一参考板）与 `end_composite_image`（保持人像与衣服 100% 不变、仅将第 3 栏姿势自动替换为相邻连续机位如 `_front -> _diag` 的**尾帧三合一参考板**）；
+       3. `end_frame_prompt_zh`（尾帧成片专用提示词）与 `video_i2v_prompt_zh`（2.5 秒微动视频指令）。
+     - 即使当前生图模型没有原生“实况”按钮，也可通过以下两种方式交付真·实况成果：
+       - **方式 A（零视频成本 · 动态实况预览合成）**：用 `ImageGen` 生成静态成片（或首尾两张成片）后，运行：
+         ```bash
+         python "<SKILL_DIR>/scripts/studio_cli.py" pack-live --photo "<首帧成片.png>" [--end-photo "<尾帧成片.png>"]
+         ```
+         即可瞬间合成带 `LIVE 实况` 角标的循环动态预览图 `*_live_preview.webp`。
+       - **方式 B（满血真·实况照片 Motion Photo 合成）**：调用 `VideoGen(image=首帧成片, last_image=尾帧成片, prompt=video_i2v_prompt_zh)` 生成 2.5 秒微动 MP4 后，运行：
+         ```bash
+         python "<SKILL_DIR>/scripts/studio_cli.py" pack-live --photo "<首帧成片.png>" --video "<微动视频.mp4>"
+         ```
+         自动向 JPEG 注入 Google Camera / Android `MotionPhoto` 双标准 XMP 元数据并内嵌 MP4 视频流，产出小红书与手机相册原生点亮 `LIVE` 标的 `*_motion_live.jpg` 与抖音实况图文配套 `*_motion_live.mp4`。
 
 ### 第三步：联动生图与交付展示 (`ImageGen` + `present_files`)
 
 1. 若用户希望**直接看到最终生成的人物穿搭/立绘成片**，可在第 1 回合并行调用 `recipe` 与 `ToolSearch(tool_names=["ImageGen"])`，随后直接调用 `ImageGen`（`image1` 传入 `composite_image` 路径，`prompt` 完整传入 `prompt_zh`，`quality` 默认传 `"medium"` 以兼顾商业级高清画质与最快生成速度）。
-2. 生成完毕后，调用 `present_files` 将**最终生成成片**与**三合一参考拼图**一并展示给用户，并在回复中附上完整的复现参数与中英双语提示词。
+2. 若用户明确要求生成**动态实况图（Live Photo）**，在 `ImageGen` 出图后可继续调用 `pack-live`（或先调 `VideoGen` 再调 `pack-live`），并将生成的**最终实景成片**、**动态实况预览图 (`*_live_preview.webp` / `*_motion_live.jpg`)** 与**三合一参考拼图**通过 `present_files` 一并展示给用户。

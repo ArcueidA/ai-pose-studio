@@ -59,10 +59,12 @@ python "<SKILL_DIR>/scripts/studio_cli.py" search <关键词> --type <all|pose|c
      --costume <服装ID或本地图片路径> \
      --pose <姿势ID或本地图片路径> \
      --style <realistic|fashion|film|ecommerce_adult|ecommerce_kid|flatlay_to_model|anime|cel_anime|semi_real|concept_sheet|render3d|chibi_box|manga|cyberpunk> \
+     [--live] \
      [--subject "自定义人物描述，如：5岁中国女童模特"] \
      [--extra-prompt "补充场景或光影要求"]
    ```
-   - 该命令会自动从云端高速图床拉取高清原图，在本地合成为一张带顶部标签的 **三合一参考拼图 (`recipe_*.jpg`)**，并同时输出 **中文结构化多图参考 Prompt** 与 **英文 SD/Flux Prompt**。
+   - 该命令会自动从云端高速图床拉取高清原图，在本地合成为一张带顶部标签的 **三合一参考拼图 (`recipe_*.png`)**，并同时输出 **中文结构化多图参考 Prompt** 与 **英文 SD/Flux Prompt**。
+   - 若加上 `--live`，还会自动匹配同动作的相邻连续机位（如正面→斜侧30度），输出专供 **ChatGPT 实况图（Live Photo）** 与 **图生视频（VideoGen / 可灵 / 即梦）** 的 2.5 秒微动防崩坏指令。
 
 ### 第三步：联动生图与交付展示 (`ImageGen` + `present_files`)
 

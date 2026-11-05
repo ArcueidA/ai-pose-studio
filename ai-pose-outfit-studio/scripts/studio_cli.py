@@ -636,20 +636,66 @@ def cmd_recipe(args: argparse.Namespace) -> None:
         + f" | Additional details: {extra_en}. Exact facial features and hairstyle from Panel 1, exact outfit design and fabric from Panel 2 worn naturally by the character, exact body pose and camera angle from Panel 3, clean background, no text or watermark."
     )
 
+    live_info = None
+    if getattr(args, "live", False):
+        next_angle_map = {
+            "_front": ("_diag", "由正面自然微侧身30度至斜侧视角，展示服装立体剪裁与侧身线条"),
+            "_diag": ("_front", "由斜侧视角自然转回正面微笑看向镜头，发丝与衣摆随之轻盈摆动"),
+            "_side": ("_diag", "由侧面缓步微转至斜侧45度视角，展现穿搭层次与呼吸感"),
+            "_high": ("_front", "镜头由微俯拍平滑过渡至平视正面，模特抬头自然眨眼浅笑"),
+            "_low": ("_front", "镜头由微仰拍平滑过渡至平视正面，模特身姿舒展自然呼吸"),
+        }
+        end_pose_id = None
+        transition_zh = "模特保持站姿自然呼吸、眨眼1次并露出浅笑，微风轻拂发丝与衣摆"
+        if args.pose:
+            for suf, (target_suf, t_desc) in next_angle_map.items():
+                if str(args.pose).endswith(suf):
+                    cand_id = str(args.pose)[: -len(suf)] + target_suf
+                    found_cand = find_item_by_id(cand_id, "pose")
+                    if found_cand:
+                        end_pose_id = cand_id
+                        transition_zh = t_desc
+                    break
+        live_info = {
+            "enabled": True,
+            "duration_sec": "2.0s - 3.0s (iPhone Live Photo / 小红书抖音实况标准时长)",
+            "start_composite_image": str(out_path),
+            "end_pose_id": end_pose_id,
+            "transition_action": transition_zh,
+            "chatgpt_live_prompt_zh": (
+                f"{zh_prompt}\n"
+                f"【Live Photo 实况微动附加指令】：生成具有 iPhone 实况照片（Live Photo）呼吸感的动态实况效果。"
+                f"动态轨迹：{transition_zh}；手持相机极轻微呼吸感晃动，光影自然流动；"
+                f"【防崩坏铁律】：全程严禁五官变形或肢体扭曲，衣服领口/袖口/面料花纹与人物脸型必须100%锁死一致。"
+            ),
+            "video_i2v_prompt_zh": (
+                f"2.5秒高清电商实况写真（Live Photo）：{subject_zh}，{transition_zh}。"
+                f"微风轻拂发丝与面料褶皱，眼神灵动自然眨眼一次，手持镜头轻微呼吸感，真实自然光影，五官与服装细节严格恒定不变。"
+            ),
+            "video_i2v_prompt_en": (
+                f"2.5s realistic iPhone Live Photo, subtle natural micro-motion: {subject_zh}, gentle breeze blowing hair and fabric folds, "
+                f"natural eye blink and soft smile, subtle handheld camera breathing motion, strict facial and outfit consistency, 60fps smooth motion."
+            ),
+        }
+
+    result_payload = {
+        "composite_image": str(out_path),
+        "style": {"code": args.style, "zh": style_zh, "en": style_en},
+        "panels": [
+            {"role": p[1], "id": p[2]["id"], "title": get_item_title(p[2]), "local_file": str(p[3])}
+            for p in panels
+        ],
+        "shot": {"code": args.shot, "zh": shot_zh, "en": shot_en},
+        "angle": {"code": args.angle, "zh": angle_zh, "en": angle_en},
+        "prompt_zh": zh_prompt,
+        "prompt_en": en_prompt,
+    }
+    if live_info:
+        result_payload["live_photo"] = live_info
+
     print(
         json.dumps(
-            {
-                "composite_image": str(out_path),
-                "style": {"code": args.style, "zh": style_zh, "en": style_en},
-                "panels": [
-                    {"role": p[1], "id": p[2]["id"], "title": get_item_title(p[2]), "local_file": str(p[3])}
-                    for p in panels
-                ],
-                "shot": {"code": args.shot, "zh": shot_zh, "en": shot_en},
-                "angle": {"code": args.angle, "zh": angle_zh, "en": angle_en},
-                "prompt_zh": zh_prompt,
-                "prompt_en": en_prompt,
-            },
+            result_payload,
             ensure_ascii=False,
             indent=2,
         )
@@ -733,6 +779,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_recipe.add_argument("--shot", choices=["full", "upper", "closeup"], default="full")
     p_recipe.add_argument("--depth", action="store_true", help="Use depth map as the pose panel")
     p_recipe.add_argument("--include-depth", action="store_true", help="Include both pose and depth map panels")
+    p_recipe.add_argument("--live", action="store_true", help="Generate Live Photo micro-motion prompts & continuous angle transition")
     p_recipe.add_argument("--out", type=str, default=None, help="Output PNG path for composite sheet")
 
     p_preload = sub.add_parser("preload", help="Pre-download assets into local cache")

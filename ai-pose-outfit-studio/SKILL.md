@@ -5,7 +5,7 @@ display_name_en: AI Pose & Outfit Reference Studio
 description: 内置4785组100%原创3D动作姿势白模（含单人/双人正面、侧面、斜侧、俯视、仰视5机位与1439张ControlNet深度图）、四季时装与二次元设定集人台、正脸发型模特全量参考库，支持多维检索、一键合成三合一参考拼图、生成中英双语提示词并联动生图工具直出商业级人像穿搭大图。触发词：姿势参考、人像姿势、3D白模、穿搭参考、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
 description_zh: 提供4785组原创3D动作白模（含5机位与1439张深度图）、四季全品类穿搭人台、二次元服装设定与正脸发型模特全量库，一键拼接三合一参考图并直出商业级人像穿搭大图。
 description_en: Complete 4,785 original 3D pose mannequins (5 angles & 1,439 depth maps), full-category outfits, anime costume sheets, and portrait hairstyle models with 3-in-1 reference stitching and AI photo generation.
-version: 1.2.0
+version: 1.3.0
 author: "tcccE"
 allowed-tools: Bash, Read, ViewImage, ImageGen, present_files
 examples_zh:
@@ -51,22 +51,22 @@ python "<SKILL_DIR>/scripts/studio_cli.py" search <关键词> --type <all|pose|c
    - `--depth`：将 3D 姿势白模一键切换为 ControlNet Depth 深度图；
    - `--flip`：水平镜像翻转参考图。
 
-2. **需要组合「人物脸型 + 服装造型 + 动作姿势」时 (`recipe`)**：
-   - 支持传入图库 ID，也**直接支持传入用户上传的本地图片路径**（如用户上传了自己的服装平铺图或模特正脸图）：
+2. **需要组合「人物脸型 + 服装造型 + 动作姿势」并出片时 (`recipe` 一键极速配单)**：
+   - **【极速直出推荐】无需先运行 `search` 查 ID！** `recipe` 原生支持直接传入**自然语言关键词**（内置同义词自动展开，如「风衣→大衣」「微卷→卷发」）、**精确图库 ID** 或**用户上传的本地图片路径**，0.2 秒一步到位完成匹配与三合一拼图合成：
    ```bash
    python "<SKILL_DIR>/scripts/studio_cli.py" recipe \
-     --portrait <人像ID或本地图片路径> \
-     --costume <服装ID或本地图片路径> \
-     --pose <姿势ID或本地图片路径> \
+     --portrait "<人像关键词 / ID / 本地图片路径>" \
+     --costume "<服装关键词 / ID / 本地图片路径>" \
+     --pose "<姿势关键词 / ID / 本地图片路径>" \
      --style <realistic|fashion|film|ecommerce_adult|ecommerce_kid|flatlay_to_model|anime|cel_anime|semi_real|concept_sheet|render3d|chibi_box|manga|cyberpunk> \
      [--live] \
      [--subject "自定义人物描述，如：5岁中国女童模特"] \
-     [--extra-prompt "补充场景或光影要求"]
+     [--scene "可选自定义场景；若不传则自动根据服装季节与品类匹配真实实景与全局光影"]
    ```
-   - 该命令会自动从云端高速图床拉取高清原图，在本地合成为一张带顶部标签的 **三合一参考拼图 (`recipe_*.png`)**，并同时输出 **中文结构化多图参考 Prompt** 与 **英文 SD/Flux Prompt**。
+   - 该命令内置 **Scene-First 实景环境与全局光影融合引擎 (`build_smart_scene_and_lighting`)**，会自动根据穿搭季节/品类推导匹配的真实三维实景、环境主光源色温、发丝边缘逆光（Rim Light）、脚底地面接触阴影（Contact Shadow）与 85mm f/1.8 光学浅景深，彻底消除“人物与背景割裂像抠图”的问题。
    - 若加上 `--live`，还会自动匹配同动作的相邻连续机位（如正面→斜侧30度），输出专供 **ChatGPT 实况图（Live Photo）** 与 **图生视频（VideoGen / 可灵 / 即梦）** 的 2.5 秒微动防崩坏指令。
 
 ### 第三步：联动生图与交付展示 (`ImageGen` + `present_files`)
 
-1. 若用户希望**直接看到最终生成的人物穿搭/立绘成片**，在运行 `recipe` 获得合成拼图路径与中文结构化 Prompt 后，调用 `ImageGen` 工具（将合成拼图或各槽位单图作为参考输入，搭配生成的 Prompt）直接生成最终高清大图。
-2. 生成完毕后，调用 `present_files` 将**三合一参考拼图**与**最终生成成片**一并展示给用户，并在回复中附上完整的复现参数与中英双语提示词。
+1. 若用户希望**直接看到最终生成的人物穿搭/立绘成片**，可在第 1 回合并行调用 `recipe` 与 `ToolSearch(tool_names=["ImageGen"])`，随后直接调用 `ImageGen`（`image1` 传入 `composite_image` 路径，`prompt` 完整传入 `prompt_zh`，`quality` 默认传 `"medium"` 以兼顾商业级高清画质与最快生成速度）。
+2. 生成完毕后，调用 `present_files` 将**最终生成成片**与**三合一参考拼图**一并展示给用户，并在回复中附上完整的复现参数与中英双语提示词。

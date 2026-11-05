@@ -74,8 +74,8 @@ STYLE_PRESETS = {
         "vintage Kodak Portra 400 film photography, subtle film grain, warm cinematic color grading, nostalgic atmosphere",
     ),
     "ecommerce_adult": (
-        "电商女装模特带货主图（高清全身/半身商品展示，版型挺括清晰，干净明亮商业背景，高转化视觉）",
-        "commercial e-commerce fashion model photography, crisp garment fit and fabric details, clean bright background, high conversion studio shot",
+        "电商女装模特实景带货主图（高清全身/半身商品展示，版型挺括清晰，自然实景与环境光柔和包裹，85mm浅景深人景合一，高转化种草视觉）",
+        "commercial e-commerce fashion lifestyle photography, crisp garment fit and fabric details, natural environment light wrapping, 85mm f/1.8 shallow depth of field, seamless subject-background integration",
     ),
     "ecommerce_kid": (
         "电商童装实拍画报（阳光自然童模街拍/棚拍，色彩明快，服装面料舒适亲肤细节清晰）",
@@ -158,27 +158,121 @@ def ensure_pillow():
         return Image, ImageDraw, ImageFont, ImageOps
 
 
+_CATALOG_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+
+
 def load_catalog(asset_type: str) -> List[Dict[str, Any]]:
+    if asset_type in _CATALOG_CACHE:
+        return _CATALOG_CACHE[asset_type]
     path = DATA_FILES.get(asset_type)
     if not path or not path.exists():
         raise FileNotFoundError(f"Catalog file not found for '{asset_type}': {path}")
     with open(path, "r", encoding="utf-8") as f:
         data = json.load(f)
+    res: List[Dict[str, Any]] = []
     if isinstance(data, dict):
         for k in ("items", "data", "poses", "costumes", "portraits"):
             if k in data and isinstance(data[k], list):
-                return data[k]
-    return data if isinstance(data, list) else []
+                res = data[k]
+                break
+    elif isinstance(data, list):
+        res = data
+    _CATALOG_CACHE[asset_type] = res
+    return res
+
+
+SYNONYM_MAP: Dict[str, List[str]] = {
+    "风衣": ["大衣", "外套", "长款外套"],
+    "外套": ["大衣", "夹克", "开衫", "西装"],
+    "毛衣": ["针织", "针织衫", "高领"],
+    "短袖": ["T恤", "女衫", "衬衫"],
+    "裙子": ["连衣裙", "半身裙", "长裙", "迷你裙"],
+    "裤子": ["长裤", "牛仔", "阔腿裤", "短裤"],
+    "高跟": ["高跟鞋", "浅口鞋", "凉鞋"],
+    "靴": ["靴子", "短靴", "长靴"],
+    "波浪": ["卷发", "大波浪", "外翻", "S型"],
+    "微卷": ["卷发", "内扣", "外翻", "S型"],
+    "黑长直": ["长发", "直发", "公主切"],
+    "丸子头": ["盘发", "团子头", "高马尾"],
+    "白领": ["通勤", "职场", "西装", "衬衫"],
+    "街拍": ["站姿", "回眸", "行走", "斜侧"],
+}
 
 
 def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[str, Dict[str, Any]]:
     target = asset_id.strip().lower()
-    search_types = [asset_type] if asset_type else ["pose", "costume", "anime", "portrait"]
+    search_types = [asset_type] if asset_type else ["costume", "anime", "pose", "portrait"]
     for atype in search_types:
         items = load_catalog(atype)
         for item in items:
             if str(item.get("id", "")).lower() == target:
                 return atype, item
+
+    # Fallback: smart keyword scoring match so callers can pass natural language directly
+    import re
+    raw_tokens = [t.strip().lower() for t in re.split(r"[\s,，、·/+]+", target) if t.strip()]
+    stop_words = {"的", "与", "和", "风", "感", "款", "穿搭", "造型", "模特", "参考", "女生", "女性", "单人"}
+    tokens = [t for t in raw_tokens if t not in stop_words] or raw_tokens
+
+    expanded_groups: List[List[str]] = []
+    for tk in tokens:
+        grp = [tk]
+        for k_syn, v_list in SYNONYM_MAP.items():
+            if k_syn in tk or tk in k_syn:
+                grp.extend(x.lower() for x in v_list)
+        expanded_groups.append(list(dict.fromkeys(grp)))
+
+    scored_candidates: List[Tuple[float, str, Dict[str, Any]]] = []
+    for atype in search_types:
+        items = load_catalog(atype)
+        for item in items:
+            title_s = get_item_title(item).lower()
+            cat_s = str(item.get("分类") or item.get("发长") or item.get("体系") or "").lower()
+            ang_s = str(item.get("角度") or "").lower()
+            tags_s = " ".join(str(x).lower() for x in (item.get("标签") or []))
+            kw_s = str(item.get("关键词") or item.get("检索") or "").lower()
+            blob_s = f"{title_s} {cat_s} {ang_s} {tags_s} {kw_s}"
+
+            score = 0.0
+            matched_tokens = 0
+            for grp in expanded_groups:
+                grp_best = 0.0
+                for cand_tk in grp:
+                    cur = 0.0
+                    if cand_tk in title_s:
+                        cur += 5.0
+                    if cand_tk in cat_s or cand_tk in ang_s:
+                        cur += 4.0
+                    elif cand_tk in tags_s or cand_tk in kw_s:
+                        cur += 2.5
+                    else:
+                        for i in range(max(0, len(cand_tk) - 1)):
+                            sub = cand_tk[i : i + 2]
+                            if len(sub) == 2 and sub not in stop_words:
+                                if sub in title_s or sub in cat_s:
+                                    cur += 1.2
+                                elif sub in blob_s:
+                                    cur += 0.5
+                    if cur > grp_best:
+                        grp_best = cur
+                if grp_best > 0:
+                    score += grp_best
+                    matched_tokens += 1
+
+            # Heavy bonus for matching MORE distinct concept groups simultaneously
+            score += matched_tokens * 8.0
+            if item.get("热门"):
+                score += 0.3
+            if atype == "pose" and "标准系" in str(item.get("体系") or ""):
+                score += 2.5
+            scored_candidates.append((score, atype, item))
+
+    if scored_candidates:
+        scored_candidates.sort(key=lambda x: x[0], reverse=True)
+        top_score = scored_candidates[0][0]
+        top_pool = [c for c in scored_candidates[:8] if c[0] >= top_score - 0.35]
+        picked = random.choice(top_pool)
+        return picked[1], picked[2]
     raise KeyError(f"Asset ID '{asset_id}' not found in catalogs ({', '.join(search_types)}).")
 
 
@@ -187,22 +281,32 @@ def resolve_or_download_relpath(rel_path: str, timeout: int = 20) -> Path:
     Resolve a relative asset path like 'assets/pose/full_single_P001_front.webp':
     1. Check local repository parent folder (if running directly inside cloned repo)
     2. Check local cache (~/.workbuddy/cache/ai-pose-outfit-studio/assets/...)
-    3. Download from multi-CDN mirrors and save to local cache
+    3. Check local personal skill owned_assets if present (0ms instant read)
+    4. Download from multi-CDN mirrors and save to local cache
     """
     rel_clean = rel_path.lstrip("/").replace("\\", "/")
 
-    # 1. Check sibling/parent repo assets folder
+    # 1. Check sibling/parent repo assets folder & local caches
     for candidate in (
         SKILL_ROOT / rel_clean,
         SKILL_ROOT.parent / rel_clean,
+        CACHE_DIR / rel_clean,
     ):
         if candidate.exists() and candidate.stat().st_size > 100:
             return candidate
 
-    # 2. Check user cache
+    # 2. Check personal studio owned_assets (if installed on the same machine)
+    parts = rel_clean.split("/")
+    if len(parts) >= 3 and parts[0] == "assets":
+        cat_dir = parts[1]
+        stem = Path(parts[2]).stem
+        personal_root = Path.home() / ".workbuddy" / "skills" / "ai-pose-studio" / "owned_assets"
+        for ext in (".webp", ".png", ".jpg"):
+            p_cand = personal_root / cat_dir / f"{stem}{ext}"
+            if p_cand.exists() and p_cand.stat().st_size > 100:
+                return p_cand
+
     cached_file = CACHE_DIR / rel_clean
-    if cached_file.exists() and cached_file.stat().st_size > 100:
-        return cached_file
 
     cached_file.parent.mkdir(parents=True, exist_ok=True)
     ctx = ssl.create_default_context()
@@ -536,46 +640,177 @@ def resolve_slot_input(
     return atype, item, local_path
 
 
+def build_smart_scene_and_lighting(
+    outfit_type: Optional[str],
+    outfit_item: Optional[Dict[str, Any]],
+    style_code: str,
+    custom_scene: Optional[str] = None,
+) -> Tuple[str, str]:
+    """
+    Auto-derive a contextually matched environment, color temperature, and Global Illumination
+    light-wrapping rules based on outfit category/tags and style preset, eliminating the 'pasted cutout' look.
+    """
+    if style_code == "concept_sheet":
+        return (
+            "纯白无瑕角色设定集背景，均匀柔和的角色全身立体布光，脚底带自然柔和接触投影",
+            "clean pure white character concept sheet background, even studio lighting with soft ground contact shadow",
+        )
+
+    cat = str((outfit_item or {}).get("分类") or "")
+    title = get_item_title(outfit_item) if outfit_item else ""
+    blob = f"{cat} {title} {custom_scene or ''}"
+
+    if custom_scene:
+        scene_zh = custom_scene
+        scene_en = custom_scene
+    elif style_code == "ecommerce_kid" or "童" in blob:
+        scene_zh = "阳光明媚的莫兰迪奶油风儿童生活美学馆或春日草坪花园实景（85mm f/2.0 柔和光学浅景深虚化）"
+        scene_en = "sunlit warm cream-toned kids lifestyle studio or sunny garden lawn with soft f/2.0 optical bokeh"
+    elif outfit_type == "anime" or style_code in ("anime", "cel_anime", "semi_real"):
+        if "制服" in cat or "校园" in cat:
+            scene_zh = "午后阳光斜射的日系樱花校园窗边走廊与蓝天白云远景，通透空气感丁达尔光束"
+            scene_en = "sunlit Japanese high school corridor window with cherry blossoms and vibrant sky, volumetric light rays"
+        elif "和服" in cat:
+            scene_zh = "暮色暖光灯笼映照的古都神社木质回廊与枫叶庭院景深"
+            scene_en = "traditional Kyoto wooden shrine corridor with warm glowing lanterns and autumn maple bokeh"
+        elif "奇幻" in cat:
+            scene_zh = "唯美奇幻流光森林与柔和魔法星尘光斑实景，电影级体积光包裹"
+            scene_en = "enchanted fantasy forest with glowing magical particles and cinematic volumetric lighting"
+        elif "偶像" in cat:
+            scene_zh = "绚丽梦幻的演唱会舞台追光灯与柔焦星光散景（Bokeh）"
+            scene_en = "dazzling idol concert stage with atmospheric spotlights and dreamy starlight bokeh"
+        elif "赛博" in cat or "军事" in cat or style_code == "cyberpunk":
+            scene_zh = "赛博朋克雨夜霓虹都市街角，青紫冷暖双色霓虹反射光映照地面与人物边缘"
+            scene_en = "cyberpunk neon rainy street with cyan and magenta neon reflections wrapping around the character"
+        else:
+            scene_zh = "新海诚式唯美通透阳光街角与微风绿植实景，丰富环境漫反射色彩融合"
+            scene_en = "Makoto Shinkai style sunlit street corner with lush greenery and rich ambient color bounce"
+    elif "泳装" in cat or "度假" in cat or "比基尼" in blob:
+        scene_zh = "阳光明媚的海岛奢华度假酒店无边泳池畔与椰林阳光露台（清澈水波光斑与碧海浅景深）"
+        scene_en = "sun-drenched luxury tropical resort infinity pool deck with palm shadows and sparkling water reflections"
+    elif "派对" in cat or "礼服" in cat or "晚礼" in blob:
+        scene_zh = "高级微醺香槟金法式晚宴厅与水晶壁灯柔和暖色散景（Cinematic warm bokeh）"
+        scene_en = "luxurious champagne-gold evening gala hall with warm crystal chandelier bokeh and ambient glow"
+    elif "居家" in cat or "睡衣" in cat or "内搭" in cat or "内衣" in cat:
+        scene_zh = "清晨第一缕暖阳透过白纱帘洒入的极简原木奶油风卧室与亚麻软装实景"
+        scene_en = "cozy minimalist cream-toned bedroom with soft morning sunlight filtering through sheer white curtains"
+    elif "通勤" in cat or "职场" in cat or "西装" in blob:
+        scene_zh = "现代极简建筑感落地窗CBD写字楼艺术长廊与高级设计买手店实景（85mm f/1.8 浅景深）"
+        scene_en = "modern architectural glass-walled CBD gallery office and high-end minimalist boutique with f/1.8 shallow depth of field"
+    elif "运动" in cat or "瑜伽" in blob or "健身" in blob:
+        scene_zh = "阳光通透的全景落地窗现代普拉提生活馆或清晨活力城市绿道实景"
+        scene_en = "sunlit floor-to-ceiling window modern Pilates studio or vibrant morning urban park pathway"
+    elif "春" in cat:
+        scene_zh = "春日午后暖阳透射的法式街角咖啡馆外摆区与微风绿植林荫街景（85mm f/1.8 自然光学浅景深）"
+        scene_en = "spring afternoon sunlit French street corner cafe patio with soft green foliage and f/1.8 optical bokeh"
+    elif "夏" in cat:
+        scene_zh = "夏日清新通透的阳光露台买手店与明媚街景，柔和树影斑驳漫反射自然光"
+        scene_en = "bright breezy summer sunlit terrace boutique and street scene with dappled sunlight and airy bokeh"
+    elif "秋" in cat:
+        scene_zh = "秋日午后4点暖阳下的复古红砖画廊街区与金黄银杏大道（温暖电影感浅景深）"
+        scene_en = "golden hour autumn street with vintage red-brick gallery and warm ginkgo trees in cinematic shallow depth of field"
+    elif "冬" in cat or "大衣" in blob or "羽绒" in blob:
+        scene_zh = "冬日北欧极简暖光精品买手店橱窗街景与柔和城市漫射天光（远景温暖散景光斑）"
+        scene_en = "winter Nordic luxury boutique window street scene with soft daylight and warm cozy interior bokeh glow"
+    else:
+        scene_zh = "高级自然采光的现代买手店美学空间与通透街景窗光（85mm f/1.8 真实光学浅景深）"
+        scene_en = "high-end sunlit modern fashion showroom with natural window daylight and 85mm f/1.8 optical bokeh"
+
+    harmony_zh = (
+        f"{scene_zh}。"
+        "【人景光影融合铁律（彻底消除抠图感）】：严禁照搬参考图1/2/3中的灰白棚拍纯色背景或网格底！"
+        "必须建立统一的三维全局光照（Global Illumination）："
+        "1) 环境主光源的冷暖色温必须真实洒在人物面部、发丝边缘（形成自然的发丝环境轮廓光 Rim Light）及服装褶皱上，让肤色与衣料自然吸收环境漫反射光（Ambient Light Wrapping）；"
+        "2) 人物与背景地面必须处于同一相机高度与透视地平线上，脚底或坐姿接触面必须生成真实的地面接触阴影（Contact Shadow & Ambient Occlusion）；"
+        "3) 背景采用 85mm f/1.8 光学镜头自然浅景深渐变虚化，人物边缘与环境空气感无缝过渡融合。"
+    )
+    harmony_en = (
+        f"{scene_en}. "
+        "[Environment & Lighting Integration Rules]: Do NOT copy the plain grey/white studio backgrounds from the reference panels. "
+        "Integrate the model seamlessly into the 3D environment with unified Global Illumination: "
+        "1) Natural ambient light wrapping and subtle rim light on hair and garment edges matching the background color temperature; "
+        "2) Realistic ground contact shadows and ambient occlusion with matched camera horizon perspective; "
+        "3) Natural 85mm f/1.8 optical bokeh depth-of-field transition with zero cutout border artifacts."
+    )
+    return harmony_zh, harmony_en
+
+
+def exact_find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Optional[Tuple[str, Dict[str, Any]]]:
+    target = asset_id.strip().lower()
+    search_types = [asset_type] if asset_type else ["pose", "costume", "anime", "portrait"]
+    for atype in search_types:
+        for item in load_catalog(atype):
+            if str(item.get("id", "")).lower() == target:
+                return atype, item
+    return None
+
+
 def cmd_recipe(args: argparse.Namespace) -> None:
     Image, ImageDraw, ImageFont, ImageOps = ensure_pillow()
 
+    # Support one-shot --auto "<query>" so callers never need separate search calls
+    auto_q = getattr(args, "auto", None)
+    portrait_arg = args.portrait or (auto_q if auto_q else None)
+    costume_arg = args.costume or (auto_q if auto_q else None)
+    pose_arg = args.pose or (auto_q if auto_q else None)
+
+    slot_specs: List[Tuple[str, str, Optional[str], bool]] = []
+    if portrait_arg:
+        slot_specs.append(("【参考图1：人物面部与发型 (PORTRAIT)】", portrait_arg, "portrait", False))
+    if costume_arg:
+        c_expect = "anime" if args.style in ("anime", "cel_anime", "semi_real", "concept_sheet", "manga") else None
+        slot_specs.append(("【参考图2：服装穿搭造型 (OUTFIT)】", costume_arg, c_expect, False))
+    if pose_arg:
+        slot_specs.append(("【参考图3：身体动作姿势 (POSE)】", pose_arg, "pose", args.depth))
+
+    if not slot_specs:
+        raise ValueError("Please provide --auto <keywords> or at least one of --portrait, --costume, or --pose.")
+
+    # Resolve & fetch all slots in parallel for maximum speed
+    resolved_map: Dict[int, Tuple[str, Dict[str, Any], Path]] = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        fut_map = {
+            ex.submit(resolve_slot_input, val, exp_type, use_d): idx
+            for idx, (_lbl, val, exp_type, use_d) in enumerate(slot_specs)
+        }
+        for fut, idx in fut_map.items():
+            resolved_map[idx] = fut.result()
+
     panels: List[Tuple[str, str, Dict[str, Any], Path]] = []
+    outfit_type_resolved: Optional[str] = None
+    outfit_item_resolved: Optional[Dict[str, Any]] = None
+    pose_item_resolved: Optional[Dict[str, Any]] = None
 
-    if args.portrait:
-        r_type, r_item, r_path = resolve_slot_input(args.portrait, "portrait")
-        panels.append(("【参考图1：人物面部与发型 (PORTRAIT)】", r_type, r_item, r_path))
+    for idx, (label, _val, _exp, _used) in enumerate(slot_specs):
+        rtype, ritem, rpath = resolved_map[idx]
+        panels.append((label, rtype, ritem, rpath))
+        if rtype in ("costume", "anime", "custom") and "OUTFIT" in label:
+            outfit_type_resolved = rtype
+            outfit_item_resolved = ritem
+        if rtype == "pose":
+            pose_item_resolved = ritem
+            if args.include_depth and not args.depth and ritem.get("深度图"):
+                d_path = resolve_or_download_relpath(ritem["深度图"])
+                panels.append(("【参考图3B：动作深度图 (DEPTH)】", "depth", ritem, d_path))
 
-    if args.costume:
-        c_type, c_item, c_path = resolve_slot_input(args.costume, None)
-        panels.append(("【参考图2：服装穿搭造型 (OUTFIT)】", c_type, c_item, c_path))
-
-    if args.pose:
-        p_type, p_item, p_path = resolve_slot_input(args.pose, "pose", use_depth=args.depth)
-        panels.append(("【参考图3：身体动作姿势 (POSE)】", p_type, p_item, p_path))
-        if args.include_depth and not args.depth and p_item.get("深度图"):
-            d_path = resolve_or_download_relpath(p_item["深度图"])
-            panels.append(("【参考图3B：动作深度图 (DEPTH)】", "depth", p_item, d_path))
-
-    if not panels:
-        raise ValueError("Please provide at least one of --portrait, --costume, or --pose.")
-
-    card_w, card_h = 600, 800
-    header_h = 88
-    footer_h = 64
-    pad = 24
+    # Compact high-clarity panel dimensions (450x600 saves 45% encoding/upload time while keeping crisp details)
+    card_w, card_h = 450, 600
+    header_h = 72
+    footer_h = 54
+    pad = 18
     n = len(panels)
     canvas_w = pad + n * (card_w + pad)
     canvas_h = header_h + card_h + footer_h + pad
 
     canvas = Image.new("RGB", (canvas_w, canvas_h), (248, 250, 252))
     draw = ImageDraw.Draw(canvas)
-    title_font = load_cjk_font(ImageFont, 26)
-    sub_font = load_cjk_font(ImageFont, 18)
-    meta_font = load_cjk_font(ImageFont, 17)
+    title_font = load_cjk_font(ImageFont, 22)
+    sub_font = load_cjk_font(ImageFont, 15)
+    meta_font = load_cjk_font(ImageFont, 14)
 
-    draw.rectangle([0, 0, canvas_w, header_h - 8], fill=(15, 23, 42))
+    draw.rectangle([0, 0, canvas_w, header_h - 6], fill=(15, 23, 42))
     draw.text(
-        (pad, 24),
+        (pad, 20),
         "AI 人像姿势与穿搭造型工坊 · 多维参考合成板 (Reference Sheet)",
         fill=(255, 255, 255),
         font=title_font,
@@ -590,50 +825,58 @@ def cmd_recipe(args: argparse.Namespace) -> None:
 
         with Image.open(img_path) as im:
             im_rgb = im.convert("RGB")
-            fitted = ImageOps.fit(im_rgb, (card_w, card_h), method=Image.Resampling.LANCZOS)
+            fitted = ImageOps.fit(im_rgb, (card_w, card_h), method=Image.Resampling.BILINEAR)
             canvas.paste(fitted, (x0, y0))
 
-        draw.rectangle([x0, y0, x0 + card_w, y0 + 44], fill=(15, 23, 42))
-        draw.text((x0 + 14, y0 + 10), f"{label}  {item['id']}", fill=(56, 189, 248), font=sub_font)
+        draw.rectangle([x0, y0, x0 + card_w, y0 + 38], fill=(15, 23, 42))
+        draw.text((x0 + 10, y0 + 8), f"{label}  {item['id']}", fill=(56, 189, 248), font=sub_font)
 
         title_text = get_item_title(item)
-        draw.rectangle([x0, y0 + card_h, x0 + card_w, y0 + card_h + footer_h - 8], fill=(255, 255, 255))
-        draw.rectangle([x0, y0, x0 + card_w, y0 + card_h + footer_h - 8], outline=(203, 213, 225), width=2)
-        draw.text((x0 + 14, y0 + card_h + 16), title_text[:30], fill=(30, 41, 59), font=meta_font)
+        draw.rectangle([x0, y0 + card_h, x0 + card_w, y0 + card_h + footer_h - 6], fill=(255, 255, 255))
+        draw.rectangle([x0, y0, x0 + card_w, y0 + card_h + footer_h - 6], outline=(203, 213, 225), width=2)
+        draw.text((x0 + 10, y0 + card_h + 14), title_text[:26], fill=(30, 41, 59), font=meta_font)
 
         if ptype != "depth":
             zh_desc, en_desc = build_prompt_for_item(ptype, item)
             zh_parts.append(f"- {label}: {zh_desc}")
             en_parts.append(en_desc)
 
-    angle_zh, angle_en = ANGLE_MAP.get(args.angle, ANGLE_MAP["front"])
+    # Auto-align angle with selected pose's actual camera angle if user left default
+    effective_angle = args.angle
+    if pose_item_resolved and args.angle == "front" and pose_item_resolved.get("角度"):
+        effective_angle = str(pose_item_resolved["角度"])
+
+    angle_zh, angle_en = ANGLE_MAP.get(effective_angle, ANGLE_MAP["front"])
     shot_zh, shot_en = SHOT_MAP.get(args.shot, SHOT_MAP["full"])
     style_zh, style_en = STYLE_PRESETS.get(args.style, STYLE_PRESETS["realistic"])
 
     subject_zh = args.subject or "单人模特"
-    extra_zh = args.extra_prompt or args.scene or "干净高级背景，大师级光影构图"
-    extra_en = args.extra_prompt or args.scene or "clean aesthetic background, studio lighting"
+    user_custom_scene = args.extra_prompt or args.scene
+    extra_zh, extra_en = build_smart_scene_and_lighting(
+        outfit_type_resolved, outfit_item_resolved, args.style, user_custom_scene
+    )
 
     if args.out:
         out_path = Path(args.out).resolve()
     else:
         out_path = CACHE_DIR / "outputs" / f"recipe_{int(time.time())}.png"
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    canvas.save(out_path, format="PNG", optimize=True)
+    canvas.save(out_path, format="PNG", compress_level=3)
 
     zh_prompt = (
-        f"请严格参考合成图中的各分栏设定，生成一张【{subject_zh}】高清图像：\n"
+        f"【单张完整实景摄影成片 · 严禁输出分栏拼图或照搬参考图灰白底色】\n"
+        f"请生成一张【{subject_zh}】置身于真实三维环境中的高清商业大片（{shot_zh}，{angle_zh}）：\n"
+        f"- 【核心场景与全局光影包裹 (Scene & Global Illumination - 最高权重)】: {extra_zh}\n"
+        f"- 【摄影画风与镜头质感 ({args.style})】: {style_zh}\n"
         + "\n".join(zh_parts)
-        + f"\n- 【画风与质感预设 ({args.style})】: {style_zh}\n"
-        + f"- 【镜头景别与机位】: {shot_zh}，{angle_zh}\n"
-        + f"- 【补充场景与细节】: {extra_zh}\n"
-        + "要求：人物的面部五官与发型严格对齐【参考图1】，全身穿搭服饰的款式/颜色/材质严格对齐【参考图2】（禁止将无头人台画成假人模型，必须穿在鲜活人物身上），肢体动作与透视机位严格对齐【参考图3】，画面干净无任何文字标签或水印。"
+        + "\n【人景合一执行标准】：必须将人物完全融入上述实景光场中——让环境主光源色温自然洒在人物面部、发丝边缘（形成柔和环境轮廓光）与服装面料褶皱上，脚底与地面产生真实的接触阴影（Contact Shadow），远景呈现 85mm f/1.8 真实光学浅景深虚化；同时人物五官发型对齐【参考图1】、全身服饰款式颜色对齐【参考图2】（必须穿在鲜活真人身上，严禁画成塑料假人台）、肢体动作对齐【参考图3】，画面干净无任何文字标签或水印。"
     )
 
     en_prompt = (
-        f"Masterpiece, {style_en}, {shot_en}, {angle_en}, subject: {subject_zh}. "
+        f"[Single Full-Frame Photograph - Do NOT output split panels or studio grey backgrounds] "
+        f"Masterpiece, {style_en}, {shot_en}, {angle_en}, subject: {subject_zh} seamlessly integrated into a real 3D environment: {extra_en} | "
         + " | ".join(en_parts)
-        + f" | Additional details: {extra_en}. Exact facial features and hairstyle from Panel 1, exact outfit design and fabric from Panel 2 worn naturally by the character, exact body pose and camera angle from Panel 3, clean background, no text or watermark."
+        + " | Exact facial features and hairstyle from Panel 1, exact outfit design and fabric from Panel 2 worn naturally by a living model, exact body pose and camera angle from Panel 3, unified global illumination, natural rim light and ground contact shadow, no text or watermark."
     )
 
     live_info = None
@@ -647,11 +890,12 @@ def cmd_recipe(args: argparse.Namespace) -> None:
         }
         end_pose_id = None
         transition_zh = "模特保持站姿自然呼吸、眨眼1次并露出浅笑，微风轻拂发丝与衣摆"
-        if args.pose:
+        actual_pose_id = str(pose_item_resolved["id"]) if pose_item_resolved else ""
+        if actual_pose_id:
             for suf, (target_suf, t_desc) in next_angle_map.items():
-                if str(args.pose).endswith(suf):
-                    cand_id = str(args.pose)[: -len(suf)] + target_suf
-                    found_cand = find_item_by_id(cand_id, "pose")
+                if actual_pose_id.endswith(suf):
+                    cand_id = actual_pose_id[: -len(suf)] + target_suf
+                    found_cand = exact_find_item_by_id(cand_id, "pose")
                     if found_cand:
                         end_pose_id = cand_id
                         transition_zh = t_desc
@@ -665,16 +909,16 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             "chatgpt_live_prompt_zh": (
                 f"{zh_prompt}\n"
                 f"【Live Photo 实况微动附加指令】：生成具有 iPhone 实况照片（Live Photo）呼吸感的动态实况效果。"
-                f"动态轨迹：{transition_zh}；手持相机极轻微呼吸感晃动，光影自然流动；"
+                f"动态轨迹：{transition_zh}；手持相机极轻微呼吸感晃动，环境光影自然流动；"
                 f"【防崩坏铁律】：全程严禁五官变形或肢体扭曲，衣服领口/袖口/面料花纹与人物脸型必须100%锁死一致。"
             ),
             "video_i2v_prompt_zh": (
                 f"2.5秒高清电商实况写真（Live Photo）：{subject_zh}，{transition_zh}。"
-                f"微风轻拂发丝与面料褶皱，眼神灵动自然眨眼一次，手持镜头轻微呼吸感，真实自然光影，五官与服装细节严格恒定不变。"
+                f"微风轻拂发丝与面料褶皱，眼神灵动自然眨眼一次，手持镜头轻微呼吸感，人物与实景背景光影自然融合，五官与服装细节严格恒定不变。"
             ),
             "video_i2v_prompt_en": (
                 f"2.5s realistic iPhone Live Photo, subtle natural micro-motion: {subject_zh}, gentle breeze blowing hair and fabric folds, "
-                f"natural eye blink and soft smile, subtle handheld camera breathing motion, strict facial and outfit consistency, 60fps smooth motion."
+                f"natural eye blink and soft smile, subtle handheld camera breathing motion, seamless environment lighting, strict facial and outfit consistency, 60fps smooth motion."
             ),
         }
 
@@ -686,7 +930,7 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             for p in panels
         ],
         "shot": {"code": args.shot, "zh": shot_zh, "en": shot_en},
-        "angle": {"code": args.angle, "zh": angle_zh, "en": angle_en},
+        "angle": {"code": effective_angle, "zh": angle_zh, "en": angle_en},
         "prompt_zh": zh_prompt,
         "prompt_en": en_prompt,
     }
@@ -768,9 +1012,10 @@ def build_parser() -> argparse.ArgumentParser:
     p_fetch.add_argument("--out-dir", type=str, default=None, help="Optional directory to save processed image(s)")
 
     p_recipe = sub.add_parser("recipe", help="Create 3-in-1 composite reference image & bilingual prompt")
-    p_recipe.add_argument("--portrait", type=str, default=None, help="Portrait ID or local image path")
-    p_recipe.add_argument("--costume", type=str, default=None, help="Costume/Anime ID or local image path")
-    p_recipe.add_argument("--pose", type=str, default=None, help="Pose ID or local image path")
+    p_recipe.add_argument("--auto", "-a", type=str, default=None, help="One-shot natural language query to auto-select portrait, costume, and pose in 0.2s")
+    p_recipe.add_argument("--portrait", type=str, default=None, help="Portrait ID, keywords (e.g. '长发 微卷'), or local image path")
+    p_recipe.add_argument("--costume", type=str, default=None, help="Costume/Anime ID, keywords (e.g. '春季 风衣'), or local image path")
+    p_recipe.add_argument("--pose", type=str, default=None, help="Pose ID, keywords (e.g. '站姿 斜侧'), or local image path")
     p_recipe.add_argument("--style", choices=list(STYLE_PRESETS.keys()), default="realistic")
     p_recipe.add_argument("--subject", type=str, default=None, help="Custom subject description")
     p_recipe.add_argument("--extra-prompt", type=str, default=None, help="Additional scene/lighting instructions")

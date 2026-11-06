@@ -962,6 +962,27 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             except Exception:
                 pass
 
+        sprite_sheet_live_prompt_zh = (
+            f"【3×2 六帧连续人物动作实况序列图 (6-Frame Seamless Loop Animation Sprite Sheet)】\n"
+            f"请严格绘制一张 3列×2行（共6格，零边框、零文字、零分割线）的高清连续动作序列图，画面中 6 格的相机机位、实景背景（{extra_zh}）、人物五官发型（对齐【参考图1】）与全身服饰材质细节（对齐【参考图2】）必须 100% 锁死在同一时空：\n"
+            f"- 第1帧(左上)：{subject_zh}按【参考图3】初始姿势自然静立看向镜头，神态灵动；\n"
+            f"- 第2帧(中上)：微风轻拂发丝与衣摆，模特自然闭眼完成一次轻柔眨眼；\n"
+            f"- 第3帧(右上)：睁眼露出温柔甜美浅笑，同时单手自然微抬轻触衣领或耳畔发丝；\n"
+            f"- 第4帧(左下)：头部微倾約5度、笑意加深，微风吹动服装下摆呈现真实垂坠飘动感；\n"
+            f"- 第5帧(中下)：抬起的手臂缓缓自然回落，衣摆与发丝渐趋平稳；\n"
+            f"- 第6帧(右下)：平滑回到与第1帧完全衔接的初始姿势，形成完美无缝循环（Seamless Loop）。"
+        )
+        sprite_sheet_live_prompt_en = (
+            f"Create a seamless 3x2 grid (3 columns, 2 rows, 6 equal frames, zero borders, zero text) sequential Live Photo animation sprite sheet. "
+            f"Strict consistency across all 6 frames: exact facial features & hairstyle from Panel 1, exact outfit from Panel 2, and exact 3D background ({extra_en}). "
+            f"Frame 1 (top-left): initial pose from Panel 3 looking at camera; "
+            f"Frame 2 (top-middle): gentle breeze blowing hair and coat hem, natural soft eye blink; "
+            f"Frame 3 (top-right): eyes open with a warm sweet smile, one hand gently raising to touch collar/hair; "
+            f"Frame 4 (bottom-left): slight head tilt with deeper smile, fabric folds flowing in breeze; "
+            f"Frame 5 (bottom-middle): hand smoothly lowering back down; "
+            f"Frame 6 (bottom-right): smoothly returning to Frame 1 pose for a seamless loop."
+        )
+
         live_info = {
             "enabled": True,
             "duration_sec": "2.0s - 3.0s (iPhone Live Photo / 小红书抖音实况标准时长)",
@@ -971,6 +992,8 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             "end_composite_image": end_composite_path,
             "transition_action": transition_zh,
             "end_frame_prompt_zh": end_frame_prompt_zh,
+            "sprite_sheet_live_prompt_zh": sprite_sheet_live_prompt_zh,
+            "sprite_sheet_live_prompt_en": sprite_sheet_live_prompt_en,
             "chatgpt_live_prompt_zh": (
                 f"{zh_prompt}\n"
                 f"【Live Photo 实况微动附加指令】：生成具有 iPhone 实况照片（Live Photo）呼吸感的动态实况效果。"
@@ -986,8 +1009,9 @@ def cmd_recipe(args: argparse.Namespace) -> None:
                 f"natural eye blink and soft smile, subtle handheld camera breathing motion, seamless environment lighting, strict facial and outfit consistency, 60fps smooth motion."
             ),
             "workflow_for_non_live_models": (
-                "若当前模型无原生实况按钮：1) 直接用 ImageGen 生成首帧成片（或分别用 start_composite_image 与 end_composite_image 生成首尾两张同款成片）；"
-                "2) 调用 VideoGen(image=首帧成片, last_image=尾帧成片, prompt=video_i2v_prompt_zh) 生成2.5s微动MP4，或运行 `studio_cli.py pack-live --photo 首帧.png --end-photo 尾帧.png` 零成本合成实况动图与真·Motion Photo文件。"
+                "【真·人物动作实况双通道】："
+                "通道A（推荐·Codex GPT-Image-2.6直出）：运行 `studio_cli.py codex-live --ref-image <composite_image>`（或用 ImageGen 传入 sprite_sheet_live_prompt_zh 生成 3×2 连续动作序列图后执行 `studio_cli.py pack-live --photo 序列图.png --sprite-sheet`），直接通过 2D FFT 防抖对齐 + MCI 双向光流补帧产出真·人物眨眼微笑动作实况照片；"
+                "通道B（首尾帧/呼吸感实况）：用 start_composite_image 与 end_composite_image 生成首尾帧后运行 `studio_cli.py pack-live --photo 首帧.png --end-photo 尾帧.png`。"
             ),
         }
 
@@ -1061,11 +1085,232 @@ def inject_motion_photo_xmp(jpeg_bytes: bytes, mp4_bytes: bytes) -> bytes:
     return jpeg_bytes[:2] + app1_seg + jpeg_bytes[2:] + mp4_bytes
 
 
+def find_ffmpeg_binary() -> Optional[str]:
+    try:
+        import imageio_ffmpeg  # type: ignore
+        ff_exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if ff_exe and Path(ff_exe).exists():
+            return str(ff_exe)
+    except Exception:
+        pass
+    ff = shutil.which("ffmpeg")
+    if ff:
+        return ff
+    winget_pkgs = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
+    if winget_pkgs.exists():
+        found_ff = list(winget_pkgs.rglob("ffmpeg.exe"))
+        if found_ff:
+            return str(found_ff[0])
+    return None
+
+
+def extract_and_stabilize_sprite_frames(
+    sheet_rgb: Any,
+    cols: int = 3,
+    rows: int = 2,
+    target_w: int = 900,
+) -> List[Any]:
+    """
+    Split a 3x2 (6-frame) continuous human-action sprite sheet, stabilize sub-frame shifts
+    via 2D FFT phase correlation, crop border seams cleanly, and upscale with LANCZOS + UnsharpMask.
+    """
+    Image, _ImageDraw, _ImageFont, _ImageOps = ensure_pillow()
+    from PIL import ImageFilter
+
+    sw, sh = sheet_rgb.size
+    cw, ch = sw // cols, sh // rows
+    raw_cells = []
+    for r in range(rows):
+        for c in range(cols):
+            x0, y0 = c * cw, r * ch
+            raw_cells.append(sheet_rgb.crop((x0, y0, x0 + cw, y0 + ch)))
+
+    # 2D FFT phase-correlation stabilization against Frame 0
+    shifts = [(0, 0)]
+    try:
+        import numpy as np  # type: ignore
+        ref_arr = np.asarray(raw_cells[0].convert("L"), dtype=np.float32)
+        ref_arr = ref_arr - ref_arr.mean()
+        f_ref = np.fft.fft2(ref_arr)
+        h_a, w_a = ref_arr.shape
+        for cell in raw_cells[1:]:
+            cur_arr = np.asarray(cell.convert("L"), dtype=np.float32)
+            cur_arr = cur_arr - cur_arr.mean()
+            cross = f_ref * np.conj(np.fft.fft2(cur_arr))
+            denom = np.abs(cross)
+            denom[denom < 1e-8] = 1e-8
+            corr = np.real(np.fft.ifft2(cross / denom))
+            dy, dx = np.unravel_index(np.argmax(corr), corr.shape)
+            if dy > h_a // 2:
+                dy -= h_a
+            if dx > w_a // 2:
+                dx -= w_a
+            dx = int(max(-14, min(14, dx)))
+            dy = int(max(-14, min(14, dy)))
+            shifts.append((dx, dy))
+    except Exception:
+        shifts = [(0, 0) for _ in raw_cells]
+
+    # Safe inner crop margin to eliminate grid borders & shift padding
+    mx = max(6, int(cw * 0.02) + max(abs(s[0]) for s in shifts))
+    my = max(6, int(ch * 0.02) + max(abs(s[1]) for s in shifts))
+    inner_w = max(64, cw - 2 * mx)
+    inner_h = max(64, ch - 2 * my)
+
+    out_w = target_w - (target_w % 2)
+    out_h = int(round(out_w * inner_h / float(inner_w)))
+    out_h -= out_h % 2
+
+    clean_frames = []
+    for cell, (dx, dy) in zip(raw_cells, shifts):
+        # Shift cell by (dx, dy) via crop offset (-dx, -dy)
+        bx0 = mx - dx
+        by0 = my - dy
+        cropped = cell.crop((bx0, by0, bx0 + inner_w, by0 + inner_h))
+        up = cropped.resize((out_w, out_h), Image.Resampling.LANCZOS)
+        up = up.filter(ImageFilter.UnsharpMask(radius=1.15, percent=60, threshold=2))
+        clean_frames.append(up)
+    return clean_frames
+
+
+def synthesize_sprite_live_bundle(
+    clean_frames: List[Any],
+    out_dir: Path,
+    stem: str,
+    cover_index: int = 2,
+) -> Dict[str, Any]:
+    """
+    Turn 6 stabilized human-action frames into:
+    1) High-res single-frame cover photo (*_key_photo.png) & Frame 1 photo (*_frame1_photo.png)
+    2) True-color Animated WebP (*_live_preview.webp) & GIF (*_live_action.gif)
+    3) 24fps Optical-Flow (ffmpeg minterpolate MCI) smooth human-action MP4 (*_motion_live.mp4)
+    4) Single-frame cover True XMP Motion Photo (*_motion_live.jpg)
+    """
+    Image, ImageDraw, ImageFont, _ImageOps = ensure_pillow()
+    from io import BytesIO
+    import subprocess
+    import tempfile
+    import wave
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    safe_idx = max(0, min(len(clean_frames) - 1, cover_index))
+    cover_rgb = clean_frames[safe_idx]
+    frame1_rgb = clean_frames[0]
+
+    key_photo_path = out_dir / f"{stem}_key_photo.png"
+    frame1_photo_path = out_dir / f"{stem}_frame1_photo.png"
+    cover_rgb.save(key_photo_path, format="PNG", compress_level=3)
+    frame1_rgb.save(frame1_photo_path, format="PNG", compress_level=3)
+
+    # Ping-pong / seamless loop sequence: 0 -> 1 -> 2 -> 3 -> 4 -> 5 (-> 0)
+    # Using all 6 sequential loop frames with natural dwell on pose & smile peak
+    seq_frames = list(clean_frames)
+    seq_durations = [420, 320, 460, 480, 340, 380]
+    if len(seq_durations) != len(seq_frames):
+        seq_durations = [380] * len(seq_frames)
+
+    font = load_cjk_font(ImageFont, 18)
+    stamped_webp = []
+    for fr in seq_frames:
+        fc = fr.copy()
+        dr = ImageDraw.Draw(fc)
+        dr.rounded_rectangle([18, 18, 138, 50], radius=16, fill=(15, 23, 42))
+        dr.ellipse([29, 28, 41, 40], fill=(239, 68, 68))
+        dr.text((48, 22), "LIVE 实况", fill=(255, 255, 255), font=font)
+        stamped_webp.append(fc)
+
+    preview_webp = out_dir / f"{stem}_live_preview.webp"
+    stamped_webp[0].save(
+        preview_webp,
+        format="WEBP",
+        save_all=True,
+        append_images=stamped_webp[1:],
+        duration=seq_durations,
+        loop=0,
+        quality=88,
+        method=4,
+    )
+
+    action_gif = out_dir / f"{stem}_live_action.gif"
+    gif_w = min(540, cover_rgb.size[0])
+    gif_h = int(round(gif_w * cover_rgb.size[1] / float(cover_rgb.size[0])))
+    gif_frames = [fr.resize((gif_w, gif_h), Image.Resampling.LANCZOS) for fr in stamped_webp]
+    gif_frames[0].save(
+        action_gif,
+        format="GIF",
+        save_all=True,
+        append_images=gif_frames[1:],
+        duration=seq_durations,
+        loop=0,
+        optimize=False,
+    )
+
+    companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
+    motion_jpg_path = None
+    ffmpeg_bin = find_ffmpeg_binary()
+
+    if ffmpeg_bin:
+        with tempfile.TemporaryDirectory() as td:
+            td_p = Path(td)
+            # Save 7 frames (0..5 + 0 at the end) so optical flow closes the loop seamlessly over ~2.6s
+            loop_seq = list(clean_frames) + [clean_frames[0]]
+            for idx, fr in enumerate(loop_seq):
+                fr.save(td_p / f"s_{idx:02d}.png", format="PNG")
+
+            wav_p = td_p / "silence.wav"
+            with wave.open(str(wav_p), "wb") as wf:
+                wf.setnchannels(2)
+                wf.setsampwidth(2)
+                wf.setframerate(44100)
+                wf.writeframes(b"\x00\x00\x00\x00" * int(44100 * 2.65))
+
+            # Bidirectional block-matching Motion Compensated Interpolation (MCI) -> 24fps smooth human action
+            vf_filter = "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,format=yuv420p"
+            cmd_ff = [
+                ffmpeg_bin, "-y",
+                "-framerate", "2.6",
+                "-i", str(td_p / "s_%02d.png"),
+                "-i", str(wav_p),
+                "-t", "2.60",
+                "-vf", vf_filter,
+                "-c:v", "libx264", "-crf", "18", "-preset", "fast",
+                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+                str(companion_mp4_path),
+            ]
+            r_ff = subprocess.run(cmd_ff, capture_output=True)
+            if r_ff.returncode == 0 and companion_mp4_path.exists() and companion_mp4_path.stat().st_size >= 10_240:
+                mp4_bytes = companion_mp4_path.read_bytes()
+                buf = BytesIO()
+                # Primary cover MUST be the clean single-frame portrait photo, NOT the 6-panel grid!
+                cover_rgb.save(buf, format="JPEG", quality=95)
+                motion_jpg_path = out_dir / f"{stem}_motion_live.jpg"
+                motion_jpg_path.write_bytes(inject_motion_photo_xmp(buf.getvalue(), mp4_bytes))
+
+    return {
+        "status": "ok",
+        "mode": "sprite_sheet_optical_flow_mci",
+        "frame_count": len(clean_frames),
+        "cover_frame_index": safe_idx,
+        "key_photo_png": str(key_photo_path),
+        "frame1_photo_png": str(frame1_photo_path),
+        "live_preview_webp": str(preview_webp),
+        "live_action_gif": str(action_gif),
+        "companion_mp4": str(companion_mp4_path) if companion_mp4_path.exists() else None,
+        "motion_photo_jpg": str(motion_jpg_path) if motion_jpg_path else None,
+        "platform_guide": {
+            "小红书/安卓相册": "直接上传 motion_photo_jpg（高清单帧人物封面 + 内置24fps光流人物动作MP4视频流，自动点亮LIVE实况标）",
+            "抖音/快手图文实况": "上传 companion_mp4 或 motion_photo_jpg 即可发布真·人物动作实况",
+            "高清静态主图": "直接使用 key_photo_png（微笑抬手高光单帧）或 frame1_photo_png（初始站姿单帧）",
+            "电脑端/对话内直接观看": "打开 live_preview_webp 或 live_action.gif 即可查看人物眨眼、微笑、抬手抚衣领、衣摆随风飘动循环效果",
+        },
+    }
+
+
 def cmd_pack_live(args: argparse.Namespace) -> None:
     """
-    Package a static model photo (+ optional end-frame photo or MP4 video) into:
-    1) Animated WebP Live Preview (*_live_preview.webp) with breathing camera motion
-    2) True XMP Motion Photo (*_motion_live.jpg) recognized by Android albums & Xiaohongshu Live Photo uploader
+    Package a 3x2 human-action sprite sheet (--sprite-sheet) OR static model photo (+ optional end-frame / MP4) into:
+    1) Animated WebP Live Preview (*_live_preview.webp)
+    2) True XMP Motion Photo (*_motion_live.jpg) with clean single-person cover & H.264 MP4 stream
     """
     Image, ImageDraw, ImageFont, ImageOps = ensure_pillow()
     from io import BytesIO
@@ -1076,11 +1321,28 @@ def cmd_pack_live(args: argparse.Namespace) -> None:
 
     out_dir = Path(args.out_dir).resolve() if args.out_dir else (CACHE_DIR / "live_outputs")
     out_dir.mkdir(parents=True, exist_ok=True)
-    stem = photo_path.stem
+    stem = args.name if getattr(args, "name", None) else photo_path.stem
 
     with Image.open(photo_path) as im0:
         base_rgb = im0.convert("RGB")
         w, h = base_rgb.size
+
+    if getattr(args, "sprite_sheet", False):
+        clean_frames = extract_and_stabilize_sprite_frames(
+            base_rgb,
+            cols=getattr(args, "cols", 3),
+            rows=getattr(args, "rows", 2),
+            target_w=getattr(args, "target_width", 900),
+        )
+        bundle = synthesize_sprite_live_bundle(
+            clean_frames,
+            out_dir=out_dir,
+            stem=stem,
+            cover_index=getattr(args, "cover_index", 2),
+        )
+        bundle["source_sprite_sheet"] = str(photo_path)
+        print(json.dumps(bundle, ensure_ascii=False, indent=2))
+        return
 
     # 1. Generate smooth breathing / keyframe Animated WebP preview
     preview_webp = out_dir / f"{stem}_live_preview.webp"
@@ -1130,21 +1392,77 @@ def cmd_pack_live(args: argparse.Namespace) -> None:
         method=0,
     )
 
-    # 2. If MP4/MOV video is provided, synthesize XMP Motion Photo (.jpg) + Douyin MP4 copy
+    # 2. Synthesize real 2.5s H.264 MP4 (if not provided or <10KB) via ffmpeg, then pack Motion Photo (.jpg)
     motion_jpg_path = None
-    companion_mp4_path = None
-    if args.video and Path(args.video).exists():
-        video_path = Path(args.video).resolve()
-        mp4_bytes = video_path.read_bytes()
+    companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
+
+    valid_video_path: Optional[Path] = None
+    if args.video and Path(args.video).exists() and Path(args.video).stat().st_size >= 10_240:
+        valid_video_path = Path(args.video).resolve()
+    else:
+        ffmpeg_bin = find_ffmpeg_binary()
+        if ffmpeg_bin:
+            import math
+            import subprocess
+            import tempfile
+            import wave
+
+            vw = w - (w % 2)
+            vh = h - (h % 2)
+            fps = 30
+            n_frames = 75  # 2.5s @ 30fps
+            with tempfile.TemporaryDirectory() as td:
+                td_p = Path(td)
+                wav_p = td_p / "silence.wav"
+                with wave.open(str(wav_p), "wb") as wf:
+                    wf.setnchannels(2)
+                    wf.setsampwidth(2)
+                    wf.setframerate(44100)
+                    wf.writeframes(b"\x00\x00\x00\x00" * int(44100 * 2.5))
+
+                src_even = base_rgb.resize((vw, vh), Image.Resampling.LANCZOS)
+                end_even = None
+                if args.end_photo and Path(args.end_photo).exists():
+                    with Image.open(args.end_photo) as im_e:
+                        end_even = ImageOps.fit(im_e.convert("RGB"), (vw, vh), method=Image.Resampling.LANCZOS)
+
+                for idx in range(n_frames):
+                    wt = 0.5 - 0.5 * math.cos(2.0 * math.pi * (idx / float(n_frames)))
+                    if end_even is not None:
+                        fr_im = Image.blend(src_even, end_even, wt)
+                    else:
+                        sc = 1.0 + 0.042 * wt
+                        cw, ch = int(vw / sc), int(vh / sc)
+                        lx = (vw - cw) // 2
+                        ty = int((vh - ch) * 0.35)
+                        fr_im = src_even.crop((lx, ty, lx + cw, ty + ch)).resize((vw, vh), Image.Resampling.BICUBIC)
+                    fr_im.save(td_p / f"f_{idx:04d}.jpg", "JPEG", quality=94)
+
+                cmd_ff = [
+                    ffmpeg_bin, "-y",
+                    "-framerate", str(fps),
+                    "-i", str(td_p / "f_%04d.jpg"),
+                    "-i", str(wav_p),
+                    "-t", "2.50",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "19", "-preset", "fast",
+                    "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
+                    str(companion_mp4_path),
+                ]
+                r_ff = subprocess.run(cmd_ff, capture_output=True)
+                if r_ff.returncode == 0 and companion_mp4_path.exists() and companion_mp4_path.stat().st_size >= 10_240:
+                    valid_video_path = companion_mp4_path
+
+    if valid_video_path and valid_video_path.exists():
+        if valid_video_path != companion_mp4_path:
+            shutil.copy2(valid_video_path, companion_mp4_path)
+        mp4_bytes = valid_video_path.read_bytes()
         buf = BytesIO()
         base_rgb.save(buf, format="JPEG", quality=94)
         motion_bytes = inject_motion_photo_xmp(buf.getvalue(), mp4_bytes)
         motion_jpg_path = out_dir / f"{stem}_motion_live.jpg"
         motion_jpg_path.write_bytes(motion_bytes)
-
-        companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
-        if video_path != companion_mp4_path:
-            shutil.copy2(video_path, companion_mp4_path)
+    else:
+        companion_mp4_path = None
 
     print(
         json.dumps(
@@ -1166,6 +1484,130 @@ def cmd_pack_live(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
+
+
+def cmd_codex_live(args: argparse.Namespace) -> None:
+    """
+    Directly invoke local Codex OAuth backend with OpenAI's latest GPT-Image-2.6
+    (`gpt-image-2.6-sunburst` or `gpt-image-2.6-flare`) to generate a 6-frame continuous
+    human-action sprite sheet from a 3-in-1 reference board (or auto-built recipe),
+    then automatically run 2D FFT stabilization + MCI optical-flow 24fps synthesis + XMP Motion Photo packing!
+    """
+    import base64
+    import uuid
+    from io import BytesIO, StringIO
+    import contextlib
+
+    Image, _ImageDraw, _ImageFont, _ImageOps = ensure_pillow()
+
+    auth_path = Path(args.auth_file).expanduser().resolve()
+    if not auth_path.exists():
+        raise FileNotFoundError(f"Codex auth.json not found at {auth_path}. Please sign in to Codex CLI first.")
+
+    auth_obj = json.loads(auth_path.read_text(encoding="utf-8"))
+    tokens = auth_obj.get("tokens") or {}
+    access_token = tokens.get("access_token", "")
+    account_id = tokens.get("account_id", "")
+    if not access_token or not account_id:
+        raise ValueError("Missing access_token or account_id in ~/.codex/auth.json")
+
+    ref_image_path: Optional[Path] = Path(args.ref_image).resolve() if args.ref_image else None
+    sprite_prompt = args.prompt or ""
+    recipe_meta = None
+
+    # If no ref_image is given, auto-build a 3-in-1 recipe board in 0.2s from --auto / --portrait / --costume / --pose
+    if not ref_image_path and (args.auto or args.portrait or args.costume or args.pose):
+        rec_ns = argparse.Namespace(
+            auto=args.auto,
+            portrait=args.portrait,
+            costume=args.costume,
+            pose=args.pose,
+            style=args.style,
+            subject=args.subject,
+            extra_prompt=args.scene,
+            scene=args.scene,
+            angle="front",
+            shot="full",
+            depth=False,
+            include_depth=False,
+            live=True,
+            out=None,
+        )
+        buf_out = StringIO()
+        with contextlib.redirect_stdout(buf_out):
+            cmd_recipe(rec_ns)
+        recipe_meta = json.loads(buf_out.getvalue())
+        ref_image_path = Path(recipe_meta["composite_image"]).resolve()
+        if not sprite_prompt:
+            sprite_prompt = recipe_meta.get("live_photo", {}).get("sprite_sheet_live_prompt_zh", "")
+
+    action_desc = args.action or "自然眨眼一次、露出温柔甜美微笑、单手轻柔抬起轻触衣领/耳畔发丝，微风吹动衣摆与发丝后自然回落至初始站姿"
+    if not sprite_prompt:
+        scene_desc = args.scene or "通透自然采光的时尚街拍实景，85mm f/1.8 真实光学浅景深"
+        sprite_prompt = (
+            f"请严格绘制一张 3列×2行（共6格，零边框、零白边、零文字标签）的高清连续人物动作实况序列图（Seamless 3x2 Live Photo Animation Sprite Sheet）。"
+            f"6 格画面的相机机位、实景背景（{scene_desc}）、人物五官发型与全身服饰细节必须严格对齐参考图且 100% 锁死恒定（绝不照搬人台假人或灰白底）："
+            f"第1帧(左上)初始自然姿势看镜头 -> 第2帧(中上)微风轻拂发丝衣摆并自然闭眼眨眼 -> 第3帧(右上)睁眼温柔微笑并开始动作（{action_desc}） -> "
+            f"第4帧(左下)动作与笑意达到最灵动高光瞬间，衣摆随风微扬 -> 第5帧(中下)手部与姿态自然平滑回落 -> 第6帧(右下)平稳回到第1帧初始姿态形成无缝循环。"
+        )
+
+    headers = {
+        "Authorization": f"Bearer {access_token}",
+        "ChatGPT-Account-Id": account_id,
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "codex_cli_rs/0.1.0 (Windows 10.0.26100; x86_64)",
+        "x-codex-image-turn-id": str(uuid.uuid4()),
+    }
+
+    t0 = time.time()
+    if ref_image_path and ref_image_path.exists():
+        mime = "image/png" if ref_image_path.suffix.lower() == ".png" else "image/jpeg"
+        b64_ref = f"data:{mime};base64," + base64.b64encode(ref_image_path.read_bytes()).decode("ascii")
+        endpoint = "https://chatgpt.com/backend-api/codex/images/edits"
+        payload: Dict[str, Any] = {
+            "model": args.model,
+            "images": [{"image_url": b64_ref}],
+            "prompt": sprite_prompt,
+            "size": args.size,
+            "quality": args.quality,
+        }
+    else:
+        endpoint = "https://chatgpt.com/backend-api/codex/images/generations"
+        payload = {
+            "model": args.model,
+            "prompt": sprite_prompt,
+            "size": args.size,
+            "quality": args.quality,
+            "n": 1,
+        }
+
+    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
+    with urllib.request.urlopen(req, timeout=240) as resp:
+        resp_body = json.loads(resp.read().decode("utf-8"))
+        img_bytes = base64.b64decode(resp_body["data"][0]["b64_json"])
+    gen_elapsed = round(time.time() - t0, 2)
+
+    out_dir = Path(args.out_dir).resolve() if args.out_dir else (CACHE_DIR / "live_outputs")
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stem = args.name or f"codex26_live_{int(time.time())}"
+    raw_sheet_path = out_dir / f"{stem}_spritesheet.png"
+    raw_sheet_path.write_bytes(img_bytes)
+
+    with Image.open(BytesIO(img_bytes)) as sh_im:
+        clean_frames = extract_and_stabilize_sprite_frames(
+            sh_im.convert("RGB"), cols=3, rows=2, target_w=args.target_width
+        )
+    bundle = synthesize_sprite_live_bundle(
+        clean_frames, out_dir=out_dir, stem=stem, cover_index=args.cover_index
+    )
+    bundle["codex_model"] = args.model
+    bundle["generation_elapsed_sec"] = gen_elapsed
+    bundle["reference_board"] = str(ref_image_path) if ref_image_path else None
+    bundle["raw_spritesheet_png"] = str(raw_sheet_path)
+    if recipe_meta:
+        bundle["recipe_panels"] = recipe_meta.get("panels")
+    print(json.dumps(bundle, ensure_ascii=False, indent=2))
 
 
 def cmd_preload(args: argparse.Namespace) -> None:
@@ -1256,10 +1698,44 @@ def build_parser() -> argparse.ArgumentParser:
     p_preload.add_argument("--workers", type=int, default=8)
 
     p_pack_live = sub.add_parser("pack-live", help="Synthesize Animated Live Preview WebP & True XMP Motion Photo (.jpg + .mp4)")
-    p_pack_live.add_argument("--photo", required=True, type=str, help="Primary static model photo (.png/.jpg/.webp)")
+    p_pack_live.add_argument("--photo", required=True, type=str, help="Primary static model photo OR 3x2 human-action sprite sheet (.png/.jpg/.webp)")
+    p_pack_live.add_argument("--sprite-sheet", action="store_true", help="Treat --photo as a 3x2 (6-frame) continuous human-action sprite sheet, run 2D FFT stabilization + MCI optical-flow 24fps synthesis, and use single-person frame as Motion Photo cover")
+    p_pack_live.add_argument("--cols", default=3, type=int, help="Sprite sheet columns (default 3)")
+    p_pack_live.add_argument("--rows", default=2, type=int, help="Sprite sheet rows (default 2)")
+    p_pack_live.add_argument("--cover-index", default=2, type=int, help="Frame index (0..5) to use as high-res single-person cover photo (default 2 = Frame 3 smile peak)")
+    p_pack_live.add_argument("--target-width", default=900, type=int, help="Target upscaled width for each stabilized frame (default 900)")
+    p_pack_live.add_argument("--name", default=None, type=str, help="Custom output filename stem")
     p_pack_live.add_argument("--end-photo", default=None, type=str, help="Optional continuous end-frame photo for zero-cost motion interpolation")
     p_pack_live.add_argument("--video", default=None, type=str, help="Optional 2-3s MP4/MOV video to embed into XMP Motion Photo (.jpg)")
     p_pack_live.add_argument("--out-dir", default=None, type=str, help="Output directory for live assets")
+
+    p_codex_live = sub.add_parser(
+        "codex-live",
+        help="Invoke local Codex GPT-Image-2.6 (`gpt-image-2.6-sunburst` / `gpt-image-2.6-flare`) to generate a 6-frame human-action Live Photo bundle",
+    )
+    p_codex_live.add_argument("--ref-image", default=None, type=str, help="3-in-1 composite reference board or portrait/outfit reference image")
+    p_codex_live.add_argument("--auto", "-a", default=None, type=str, help="Or auto-select portrait+costume+pose in 0.2s via natural keywords (e.g. '秋季 大衣 街拍')")
+    p_codex_live.add_argument("--portrait", default=None, type=str, help="Portrait ID, keywords, or local path")
+    p_codex_live.add_argument("--costume", default=None, type=str, help="Costume ID, keywords, or local path")
+    p_codex_live.add_argument("--pose", default=None, type=str, help="Pose ID, keywords, or local path")
+    p_codex_live.add_argument("--style", choices=list(STYLE_PRESETS.keys()), default="realistic")
+    p_codex_live.add_argument("--subject", default=None, type=str, help="Custom model description")
+    p_codex_live.add_argument("--scene", default=None, type=str, help="Custom scene & global illumination description")
+    p_codex_live.add_argument("--action", default=None, type=str, help="Custom human action sequence (e.g. '眨眼微笑、抬手轻抚衣领、微风吹拂长发与裙摆')")
+    p_codex_live.add_argument("--prompt", default=None, type=str, help="Override full sprite-sheet generation prompt")
+    p_codex_live.add_argument(
+        "--model",
+        choices=["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-1.5", "gpt-image-1"],
+        default="gpt-image-2.6-sunburst",
+        help="Codex image model: gpt-image-2.6-sunburst (highest consistency) or gpt-image-2.6-flare (fastest)",
+    )
+    p_codex_live.add_argument("--size", default="1024x1536", type=str, help="Generation size (1024x1536 or 1536x1536)")
+    p_codex_live.add_argument("--quality", choices=["low", "medium", "high"], default="medium")
+    p_codex_live.add_argument("--cover-index", default=2, type=int, help="Frame index (0..5) for single-person cover photo (default 2)")
+    p_codex_live.add_argument("--target-width", default=900, type=int, help="Upscaled frame width (default 900)")
+    p_codex_live.add_argument("--name", default=None, type=str, help="Custom output filename stem")
+    p_codex_live.add_argument("--out-dir", default=None, type=str, help="Output directory")
+    p_codex_live.add_argument("--auth-file", default=str(Path.home() / ".codex" / "auth.json"), type=str, help="Path to ~/.codex/auth.json")
 
     return parser
 
@@ -1276,6 +1752,7 @@ def main() -> None:
         "recipe": cmd_recipe,
         "preload": cmd_preload,
         "pack-live": cmd_pack_live,
+        "codex-live": cmd_codex_live,
     }
     dispatch[args.command](args)
 

@@ -1,17 +1,16 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.4.0)
-100% Original Copyrighted Assets + 288 Live Motion Previews | Author: tcccE
+AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.5.0)
+100% Original Copyrighted Assets + Daily Douyin/Xiaohongshu Influencer Expansion | Author: tcccE
 
 Commands:
-  stats     : View catalog counts, category breakdown, and 15 style presets
+  stats     : View catalog counts, category breakdown, and 16 style presets
   search    : Multi-dimensional filtering across pose / costume / anime / portrait
   detail    : Inspect full metadata and prompt tags for specific asset ID(s)
   random    : Randomly pick matching assets for inspiration
-  fetch     : Download / resolve asset image(s) (depth map / live preview WebP) to local cache
-  recipe    : Combine Pose + Costume + Portrait into start/end 3-in-1 reference sheets & Scene-First prompts
-  pack-live : Synthesize Animated Live Preview WebP & True XMP Motion Photo (.jpg + .mp4)
+  fetch     : Download / resolve asset image(s) (or ControlNet depth map) to local cache
+  recipe    : Combine Pose + Costume + Portrait into 3-in-1 reference sheet & Scene-First prompts
   preload   : Batch warm-up local asset cache with multi-threading
 """
 
@@ -65,6 +64,10 @@ STYLE_PRESETS = {
     "realistic": (
         "写实人像写真（85mm定焦商业人像摄影，自然柔光，真实细腻肤质与织物纹理，8K超清细节）",
         "photorealistic portrait photography, 85mm f/1.4 lens, natural soft lighting, ultra-detailed skin and fabric texture, 8k resolution, masterpiece",
+    ),
+    "influencer_ootd": (
+        "小红书/抖音高赞网红OOTD街拍（松弛感自然抓拍构图，高颅顶精致网红妆造，通透原生感奶油冷白皮与高级织物肌理，85mm f/1.8 真实街景柔焦空气感，百万赞种草封面质感）",
+        "viral Xiaohongshu and Douyin influencer OOTD street snap, effortless candid vibe, high-cranial-top refined influencer makeup, luminous creamy skin and crisp garment texture, 85mm f/1.8 natural urban bokeh, high-engagement social media fashion lookbook",
     ),
     "fashion": (
         "日韩时尚杂志画报（高级感棚拍光影，时尚Lookbook构图，精致妆造与高级色调）",
@@ -191,12 +194,35 @@ SYNONYM_MAP: Dict[str, List[str]] = {
     "裤子": ["长裤", "牛仔", "阔腿裤", "短裤"],
     "高跟": ["高跟鞋", "浅口鞋", "凉鞋"],
     "靴": ["靴子", "短靴", "长靴"],
-    "波浪": ["卷发", "大波浪", "外翻", "S型"],
+    "波浪": ["卷发", "大波浪", "外翻", "S型", "高颅顶"],
     "微卷": ["卷发", "内扣", "外翻", "S型"],
     "黑长直": ["长发", "直发", "公主切"],
     "丸子头": ["盘发", "团子头", "高马尾"],
-    "白领": ["通勤", "职场", "西装", "衬衫"],
-    "街拍": ["站姿", "回眸", "行走", "斜侧"],
+    "白领": ["通勤", "职场", "西装", "衬衫", "知识分子"],
+    "街拍": ["站姿", "回眸", "行走", "斜侧", "网红", "小红书", "松弛感"],
+    "网红": ["小红书", "抖音", "爆款", "街拍", "松弛感", "纯欲", "千金", "辣妹", "美拉德", "韩系", "ootd"],
+    "小红书": ["网红", "爆款", "松弛感", "知识分子", "美拉德", "老钱风", "芭蕾风", "千金", "汉南洞"],
+    "抖音": ["网红", "爆款", "辣妹", "纯欲", "街拍", "潮童", "新中式", "甜酷", "摸胯"],
+    "松弛感": ["回眸", "插兜", "漫步", "慵懒", "斜侧", "咖啡", "知识分子", "狼尾"],
+    "纯欲": ["挂脖", "露肩", "修身", "针织", "白开水妆", "麻花辫", "抹胸", "辣妹"],
+    "辣妹": ["短款", "露脐", "高腰", "工装", "甜酷", "y2k", "羽毛剪", "摸胯", "交叉腿"],
+    "美拉德": ["焦糖", "棕", "麂皮", "巴恩风", "复古", "秋季", "风衣", "皮衣"],
+    "巴恩风": ["美拉德", "麂皮", "灯芯绒", "工装", "夹克", "复古"],
+    "千金": ["小香风", "粗花呢", "财阀", "汉南洞", "高颅顶", "大波浪", "老钱风"],
+    "老钱风": ["静奢", "羊绒", "针织", "极简", "高级感", "知识分子", "宋锦"],
+    "知识分子": ["上宽下窄", "格纹", "衬衫", "针织", "百褶裙", "金丝眼镜", "老钱风"],
+    "芭蕾风": ["balletcore", "丝带", "纱裙", "堆堆袜", "玛丽珍", "绑带"],
+    "新中式": ["宋锦", "盘扣", "马面裙", "立领", "提花", "国风", "东方"],
+    "网球风": ["alo", "百褶短裙", "运动", "polo", "瑜伽", "活力"],
+    "潮童": ["童装", "儿童", "抖音爆款", "卫衣", "背带裤", "新中式童装"],
+    "地雷系": ["量产型", "蝴蝶结", "蕾丝", "哥特", "双马尾", "洛丽塔"],
+    "天使界隈": ["水色系", "机能", "透明感", "二次元", "白发", "潮服"],
+}
+
+INFLUENCER_HINT_WORDS = {
+    "网红", "小红书", "抖音", "爆款", "ootd", "松弛感", "纯欲", "辣妹",
+    "美拉德", "巴恩风", "千金", "汉南洞", "老钱风", "知识分子", "芭蕾",
+    "balletcore", "新中式", "网球", "alo", "潮童", "地雷系", "天使界隈", "y2k",
 }
 
 
@@ -214,6 +240,7 @@ def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[st
     raw_tokens = [t.strip().lower() for t in re.split(r"[\s,，、·/+]+", target) if t.strip()]
     stop_words = {"的", "与", "和", "风", "感", "款", "穿搭", "造型", "模特", "参考", "女生", "女性", "单人"}
     tokens = [t for t in raw_tokens if t not in stop_words] or raw_tokens
+    wants_influencer = any(any(hw in tk for hw in INFLUENCER_HINT_WORDS) for tk in raw_tokens)
 
     expanded_groups: List[List[str]] = []
     for tk in tokens:
@@ -227,6 +254,7 @@ def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[st
     for atype in search_types:
         items = load_catalog(atype)
         for item in items:
+            aid_s = str(item.get("id") or "").lower()
             title_s = get_item_title(item).lower()
             cat_s = str(item.get("分类") or item.get("发长") or item.get("体系") or "").lower()
             ang_s = str(item.get("角度") or "").lower()
@@ -264,7 +292,9 @@ def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[st
             score += matched_tokens * 8.0
             if item.get("热门"):
                 score += 0.3
-            if atype == "pose" and "标准系" in str(item.get("体系") or ""):
+            if wants_influencer and ("xhs" in aid_s or "网红" in blob_s or "小红书" in blob_s or "抖音" in blob_s):
+                score += 4.5
+            if atype == "pose" and ("标准系" in str(item.get("体系") or "") or "网红" in str(item.get("体系") or "")):
                 score += 2.5
             scored_candidates.append((score, atype, item))
 
@@ -308,7 +338,6 @@ def resolve_or_download_relpath(rel_path: str, timeout: int = 20) -> Path:
                 return p_cand
 
     cached_file = CACHE_DIR / rel_clean
-
     cached_file.parent.mkdir(parents=True, exist_ok=True)
     ctx = ssl.create_default_context()
     ctx.check_hostname = False
@@ -321,7 +350,7 @@ def resolve_or_download_relpath(rel_path: str, timeout: int = 20) -> Path:
             req = urllib.request.Request(
                 url,
                 headers={
-                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AI-Pose-Outfit-Studio/1.0"
+                    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AI-Pose-Outfit-Studio/1.5"
                 },
             )
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
@@ -358,7 +387,6 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
         "标题": get_item_title(item),
     }
     if atype == "pose":
-        base_group = str(aid).rsplit("_", 1)[0] if "_" in str(aid) else str(aid)
         base.update(
             {
                 "体系": item.get("体系", ""),
@@ -367,8 +395,6 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
                 "角度": item.get("角度", ""),
                 "图片": item.get("图片") or f"assets/pose/{aid}.webp",
                 "深度图": item.get("深度图") or f"assets/pose_depth/{aid}.webp",
-                "实况预览": item.get("实况预览") or f"assets/pose_live/{base_group}.webp",
-                "实况尾帧ID": item.get("实况尾帧ID", ""),
             }
         )
     elif atype in ("costume", "anime"):
@@ -396,9 +422,9 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
 def cmd_stats(_args: argparse.Namespace) -> None:
     report: Dict[str, Any] = {
         "skill": "ai-pose-outfit-studio",
-        "version": "1.4.0",
+        "version": "1.5.0",
         "author": "tcccE",
-        "copyright": "100% Original Owned Assets (4,785 Static + 1,439 Depth + 288 Live Motion Previews)",
+        "copyright": "100% Original Owned Assets + Daily Douyin/Xiaohongshu Influencer Expansion",
         "cache_dir": str(CACHE_DIR),
         "catalogs": {},
         "total_assets": 0,
@@ -447,8 +473,14 @@ def match_item(
         if hair_len.lower() != h_val and hair_len.lower() not in blob:
             return False
     for kw in keywords:
-        if kw.lower() not in blob:
-            return False
+        kw_l = kw.lower()
+        if kw_l in blob:
+            continue
+        # Check synonym expansion
+        syns = SYNONYM_MAP.get(kw_l, [])
+        if any(s.lower() in blob for s in syns):
+            continue
+        return False
     return True
 
 
@@ -555,17 +587,7 @@ def cmd_fetch(args: argparse.Namespace) -> None:
     results = []
     for raw_id in args.ids:
         atype, item = find_item_by_id(raw_id, args.type)
-        if getattr(args, "live_preview", False) and atype == "pose":
-            base_group = str(item["id"]).rsplit("_", 1)[0]
-            rel_img = item.get("实况预览") or f"assets/pose_live/{base_group}.webp"
-            local_img = resolve_or_download_relpath(rel_img)
-            final_img = local_img
-            if out_dir:
-                out_dir.mkdir(parents=True, exist_ok=True)
-                final_img = out_dir / local_img.name
-                shutil.copy2(local_img, final_img)
-            mode_str = "live_preview"
-        elif args.depth and atype == "pose":
+        if args.depth and atype == "pose":
             rel_img = item.get("深度图") or f"assets/pose_depth/{item['id']}.webp"
             local_img = resolve_or_download_relpath(rel_img)
             final_img = process_fetched_image(local_img, args.flip, args.resize_mode, out_dir)
@@ -676,21 +698,28 @@ def build_smart_scene_and_lighting(
 
     cat = str((outfit_item or {}).get("分类") or "")
     title = get_item_title(outfit_item) if outfit_item else ""
-    blob = f"{cat} {title} {custom_scene or ''}"
+    tags_s = " ".join(str(x) for x in ((outfit_item or {}).get("标签") or []))
+    blob = f"{cat} {title} {tags_s} {custom_scene or ''}"
 
     if custom_scene:
         scene_zh = custom_scene
         scene_en = custom_scene
     elif style_code == "ecommerce_kid" or "童" in blob:
-        scene_zh = "阳光明媚的莫兰迪奶油风儿童生活美学馆或春日草坪花园实景（85mm f/2.0 柔和光学浅景深虚化）"
+        scene_zh = "阳光明媚的莫兰迪奶油风儿童生活美学馆或春日草坪花园网红打卡实景（85mm f/2.0 柔和光学浅景深虚化）"
         scene_en = "sunlit warm cream-toned kids lifestyle studio or sunny garden lawn with soft f/2.0 optical bokeh"
     elif outfit_type == "anime" or style_code in ("anime", "cel_anime", "semi_real"):
-        if "制服" in cat or "校园" in cat:
+        if "地雷" in blob or "量产" in blob or "哥特" in blob:
+            scene_zh = "东京涩谷/原宿黄昏霓虹街角与复古欧式雕花铁艺橱窗实景，梦幻柔焦光斑包裹"
+            scene_en = "Tokyo Harajuku twilight street corner with vintage wrought-iron boutique window and dreamy neon bokeh"
+        elif "天使界隈" in blob or "水色" in blob or "机能" in blob:
+            scene_zh = "通透空灵的冰蓝水色系未来感透明落地窗展厅与柔和冷调空气感体积光"
+            scene_en = "ethereal ice-blue futuristic glass showroom with soft cyan ambient volumetric light"
+        elif "制服" in cat or "校园" in cat or "JK" in blob:
             scene_zh = "午后阳光斜射的日系樱花校园窗边走廊与蓝天白云远景，通透空气感丁达尔光束"
             scene_en = "sunlit Japanese high school corridor window with cherry blossoms and vibrant sky, volumetric light rays"
-        elif "和服" in cat:
-            scene_zh = "暮色暖光灯笼映照的古都神社木质回廊与枫叶庭院景深"
-            scene_en = "traditional Kyoto wooden shrine corridor with warm glowing lanterns and autumn maple bokeh"
+        elif "和服" in cat or "中华" in blob or "旗袍" in blob:
+            scene_zh = "暮色暖光灯笼映照的东方古风木质回廊与庭院花窗景深"
+            scene_en = "traditional oriental wooden corridor with warm glowing lanterns and garden window bokeh"
         elif "奇幻" in cat:
             scene_zh = "唯美奇幻流光森林与柔和魔法星尘光斑实景，电影级体积光包裹"
             scene_en = "enchanted fantasy forest with glowing magical particles and cinematic volumetric lighting"
@@ -703,6 +732,21 @@ def build_smart_scene_and_lighting(
         else:
             scene_zh = "新海诚式唯美通透阳光街角与微风绿植实景，丰富环境漫反射色彩融合"
             scene_en = "Makoto Shinkai style sunlit street corner with lush greenery and rich ambient color bounce"
+    elif "新中式" in blob or "宋锦" in blob or "马面裙" in blob or "盘扣" in blob:
+        scene_zh = "江南苏式园林新中式茶空间与竹影花窗实景，午后温润暖阳透过木格花窗洒下斑驳光影（85mm f/1.8 浅景深）"
+        scene_en = "modern Chinese Suzhou garden tea house with bamboo shadows and warm afternoon sunlight filtering through wooden lattice windows, 85mm f/1.8 bokeh"
+    elif "美拉德" in blob or "巴恩风" in blob or "麂皮" in blob:
+        scene_zh = "秋日午后4点暖金斜阳下的上海武康路/安福路梧桐落叶红砖街角与复古咖啡馆外摆区（浓郁美拉德电影感浅景深）"
+        scene_en = "golden hour autumn Wukang Road plane-tree street corner with vintage red-brick cafe patio and warm Maillard cinematic bokeh"
+    elif "千金" in blob or "汉南洞" in blob or "小香风" in blob or "老钱" in blob:
+        scene_zh = "首尔汉南洞/巴黎蒙田大道高奢设计师买手店旋转石阶与暖光落地橱窗实景（高级静奢光影包裹）"
+        scene_en = "Seoul Hannam-dong luxury designer boutique marble staircase and warm floor-to-ceiling window daylight with quiet-luxury bokeh"
+    elif "芭蕾" in blob or "Balletcore" in blob or "纯欲" in blob:
+        scene_zh = "法式奶油风阳光艺术画廊与落地白纱窗景，柔和漫反射晨光勾勒清透冷白皮与发丝高光"
+        scene_en = "French cream-toned sunlit art studio with sheer white curtains and soft diffused daylight wrapping around skin and hair"
+    elif "辣妹" in blob or "甜酷" in blob or "Y2K" in blob:
+        scene_zh = "潮流买手街区阳光涂鸦水泥墙面与工业风金属街角实景（高反差自然阳光与鲜活街拍空气感）"
+        scene_en = "trendy urban fashion district sunlit concrete and brushed-metal street corner with crisp natural daylight and shallow depth of field"
     elif "泳装" in cat or "度假" in cat or "比基尼" in blob:
         scene_zh = "阳光明媚的海岛奢华度假酒店无边泳池畔与椰林阳光露台（清澈水波光斑与碧海浅景深）"
         scene_en = "sun-drenched luxury tropical resort infinity pool deck with palm shadows and sparkling water reflections"
@@ -712,12 +756,12 @@ def build_smart_scene_and_lighting(
     elif "居家" in cat or "睡衣" in cat or "内搭" in cat or "内衣" in cat:
         scene_zh = "清晨第一缕暖阳透过白纱帘洒入的极简原木奶油风卧室与亚麻软装实景"
         scene_en = "cozy minimalist cream-toned bedroom with soft morning sunlight filtering through sheer white curtains"
-    elif "通勤" in cat or "职场" in cat or "西装" in blob:
-        scene_zh = "现代极简建筑感落地窗CBD写字楼艺术长廊与高级设计买手店实景（85mm f/1.8 浅景深）"
-        scene_en = "modern architectural glass-walled CBD gallery office and high-end minimalist boutique with f/1.8 shallow depth of field"
-    elif "运动" in cat or "瑜伽" in blob or "健身" in blob:
-        scene_zh = "阳光通透的全景落地窗现代普拉提生活馆或清晨活力城市绿道实景"
-        scene_en = "sunlit floor-to-ceiling window modern Pilates studio or vibrant morning urban park pathway"
+    elif "通勤" in cat or "职场" in cat or "西装" in blob or "知识分子" in blob:
+        scene_zh = "现代极简建筑感落地窗CBD写字楼艺术长廊与高级设计书店买手空间实景（85mm f/1.8 浅景深）"
+        scene_en = "modern architectural glass-walled CBD gallery office and high-end minimalist bookstore boutique with f/1.8 shallow depth of field"
+    elif "运动" in cat or "瑜伽" in blob or "健身" in blob or "网球" in blob or "Alo" in blob:
+        scene_zh = "阳光通透的加州风户外红土/绿茵网球场边或全景落地窗现代普拉提生活馆实景"
+        scene_en = "sunlit California-style outdoor tennis court club or floor-to-ceiling window modern Pilates studio"
     elif "春" in cat:
         scene_zh = "春日午后暖阳透射的法式街角咖啡馆外摆区与微风绿植林荫街景（85mm f/1.8 自然光学浅景深）"
         scene_en = "spring afternoon sunlit French street corner cafe patio with soft green foliage and f/1.8 optical bokeh"
@@ -731,8 +775,8 @@ def build_smart_scene_and_lighting(
         scene_zh = "冬日北欧极简暖光精品买手店橱窗街景与柔和城市漫射天光（远景温暖散景光斑）"
         scene_en = "winter Nordic luxury boutique window street scene with soft daylight and warm cozy interior bokeh glow"
     else:
-        scene_zh = "高级自然采光的现代买手店美学空间与通透街景窗光（85mm f/1.8 真实光学浅景深）"
-        scene_en = "high-end sunlit modern fashion showroom with natural window daylight and 85mm f/1.8 optical bokeh"
+        scene_zh = "小红书高赞网红打卡街角咖啡馆外摆区与阳光梧桐街景（85mm f/1.8 真实光学浅景深）"
+        scene_en = "viral Xiaohongshu aesthetic sunlit street corner cafe patio with plane-tree shadows and 85mm f/1.8 optical bokeh"
 
     harmony_zh = (
         f"{scene_zh}。"
@@ -751,16 +795,6 @@ def build_smart_scene_and_lighting(
         "3) Natural 85mm f/1.8 optical bokeh depth-of-field transition with zero cutout border artifacts."
     )
     return harmony_zh, harmony_en
-
-
-def exact_find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Optional[Tuple[str, Dict[str, Any]]]:
-    target = asset_id.strip().lower()
-    search_types = [asset_type] if asset_type else ["pose", "costume", "anime", "portrait"]
-    for atype in search_types:
-        for item in load_catalog(atype):
-            if str(item.get("id", "")).lower() == target:
-                return atype, item
-    return None
 
 
 def cmd_recipe(args: argparse.Namespace) -> None:
@@ -897,124 +931,6 @@ def cmd_recipe(args: argparse.Namespace) -> None:
         + " | Exact facial features and hairstyle from Panel 1, exact outfit design and fabric from Panel 2 worn naturally by a living model, exact body pose and camera angle from Panel 3, unified global illumination, natural rim light and ground contact shadow, no text or watermark."
     )
 
-    live_info = None
-    if getattr(args, "live", False):
-        next_angle_map = {
-            "_front": ("_diag", "由正面自然微侧身30度至斜侧视角，展示服装立体剪裁与侧身线条"),
-            "_diag": ("_front", "由斜侧视角自然转回正面微笑看向镜头，发丝与衣摆随之轻盈摆动"),
-            "_side": ("_diag", "由侧面缓步微转至斜侧45度视角，展现穿搭层次与呼吸感"),
-            "_high": ("_front", "镜头由微俯拍平滑过渡至平视正面，模特抬头自然眨眼浅笑"),
-            "_low": ("_front", "镜头由微仰拍平滑过渡至平视正面，模特身姿舒展自然呼吸"),
-        }
-        end_pose_id = None
-        end_pose_item = None
-        transition_zh = "模特保持站姿自然呼吸、眨眼1次并露出浅笑，微风轻拂发丝与衣摆"
-        actual_pose_id = str(pose_item_resolved["id"]) if pose_item_resolved else ""
-        live_preview_local = None
-
-        if actual_pose_id:
-            base_group = actual_pose_id.rsplit("_", 1)[0] if "_" in actual_pose_id else actual_pose_id
-            rel_live_webp = (pose_item_resolved or {}).get("实况预览") or f"assets/pose_live/{base_group}.webp"
-            try:
-                live_preview_local = str(resolve_or_download_relpath(rel_live_webp))
-            except Exception:
-                live_preview_local = None
-
-            for suf, (target_suf, t_desc) in next_angle_map.items():
-                if actual_pose_id.endswith(suf):
-                    cand_id = actual_pose_id[: -len(suf)] + target_suf
-                    found_cand = exact_find_item_by_id(cand_id, "pose")
-                    if found_cand:
-                        end_pose_id = cand_id
-                        end_pose_item = found_cand[1]
-                        transition_zh = t_desc
-                    break
-
-        # Build End-Frame Composite Reference Sheet (locks Panel 1 & Panel 2, swaps Panel 3 to end_pose_id)
-        end_composite_path = None
-        end_frame_prompt_zh = None
-        if end_pose_id and end_pose_item:
-            try:
-                _, _, end_pose_img_path = resolve_slot_input(end_pose_id, "pose", use_depth=args.depth)
-                end_canvas = canvas.copy()
-                end_draw = ImageDraw.Draw(end_canvas)
-                for p_idx, (p_lbl, p_tp, _p_it, _p_path) in enumerate(panels):
-                    if p_tp == "pose":
-                        x0 = pad + p_idx * (card_w + pad)
-                        y0 = header_h
-                        with Image.open(end_pose_img_path) as eim:
-                            efitted = ImageOps.fit(eim.convert("RGB"), (card_w, card_h), method=Image.Resampling.BILINEAR)
-                            end_canvas.paste(efitted, (x0, y0))
-                        end_draw.rectangle([x0, y0, x0 + card_w, y0 + 38], fill=(15, 23, 42))
-                        end_draw.text((x0 + 10, y0 + 8), f"{p_lbl}  {end_pose_id} (实况尾帧)", fill=(250, 204, 21), font=sub_font)
-                        etitle = get_item_title(end_pose_item)
-                        end_draw.rectangle([x0, y0 + card_h, x0 + card_w, y0 + card_h + footer_h - 6], fill=(255, 255, 255))
-                        end_draw.rectangle([x0, y0, x0 + card_w, y0 + card_h + footer_h - 6], outline=(203, 213, 225), width=2)
-                        end_draw.text((x0 + 10, y0 + card_h + 14), etitle[:26], fill=(30, 41, 59), font=meta_font)
-                end_out = out_path.with_name(f"{out_path.stem}_end_frame.png")
-                end_canvas.save(end_out, format="PNG", compress_level=3)
-                end_composite_path = str(end_out)
-                end_ang = str(end_pose_item.get("角度") or "斜侧")
-                end_frame_prompt_zh = (
-                    zh_prompt.replace(f"（{shot_zh}，{angle_zh}）", f"（{shot_zh}，{end_ang}·实况连续尾帧）")
-                    + f"\n【实况连续尾帧锁死要求】：本图作为实况照片（Live Photo）的第 2.5 秒连续尾帧，人物面部五官发型、全身服饰细节、实景背景与环境光色温必须与首帧 100% 保持同一时空恒定，仅身体姿势自然过渡至【{end_pose_id}（{end_ang}机位：{transition_zh}）】。"
-                )
-            except Exception:
-                pass
-
-        sprite_sheet_live_prompt_zh = (
-            f"【3×2 六帧连续人物动作实况序列图 (6-Frame Seamless Loop Animation Sprite Sheet)】\n"
-            f"请严格绘制一张 3列×2行（共6格，零边框、零文字、零分割线）的高清连续动作序列图，画面中 6 格的相机机位、实景背景（{extra_zh}）、人物五官发型（对齐【参考图1】）与全身服饰材质细节（对齐【参考图2】）必须 100% 锁死在同一时空：\n"
-            f"- 第1帧(左上)：{subject_zh}按【参考图3】初始姿势自然静立看向镜头，神态灵动；\n"
-            f"- 第2帧(中上)：微风轻拂发丝与衣摆，模特自然闭眼完成一次轻柔眨眼；\n"
-            f"- 第3帧(右上)：睁眼露出温柔甜美浅笑，同时单手自然微抬轻触衣领或耳畔发丝；\n"
-            f"- 第4帧(左下)：头部微倾約5度、笑意加深，微风吹动服装下摆呈现真实垂坠飘动感；\n"
-            f"- 第5帧(中下)：抬起的手臂缓缓自然回落，衣摆与发丝渐趋平稳；\n"
-            f"- 第6帧(右下)：平滑回到与第1帧完全衔接的初始姿势，形成完美无缝循环（Seamless Loop）。"
-        )
-        sprite_sheet_live_prompt_en = (
-            f"Create a seamless 3x2 grid (3 columns, 2 rows, 6 equal frames, zero borders, zero text) sequential Live Photo animation sprite sheet. "
-            f"Strict consistency across all 6 frames: exact facial features & hairstyle from Panel 1, exact outfit from Panel 2, and exact 3D background ({extra_en}). "
-            f"Frame 1 (top-left): initial pose from Panel 3 looking at camera; "
-            f"Frame 2 (top-middle): gentle breeze blowing hair and coat hem, natural soft eye blink; "
-            f"Frame 3 (top-right): eyes open with a warm sweet smile, one hand gently raising to touch collar/hair; "
-            f"Frame 4 (bottom-left): slight head tilt with deeper smile, fabric folds flowing in breeze; "
-            f"Frame 5 (bottom-middle): hand smoothly lowering back down; "
-            f"Frame 6 (bottom-right): smoothly returning to Frame 1 pose for a seamless loop."
-        )
-
-        live_info = {
-            "enabled": True,
-            "duration_sec": "2.0s - 3.0s (iPhone Live Photo / 小红书抖音实况标准时长)",
-            "live_pose_preview_webp": live_preview_local,
-            "start_composite_image": str(out_path),
-            "end_pose_id": end_pose_id,
-            "end_composite_image": end_composite_path,
-            "transition_action": transition_zh,
-            "end_frame_prompt_zh": end_frame_prompt_zh,
-            "sprite_sheet_live_prompt_zh": sprite_sheet_live_prompt_zh,
-            "sprite_sheet_live_prompt_en": sprite_sheet_live_prompt_en,
-            "chatgpt_live_prompt_zh": (
-                f"{zh_prompt}\n"
-                f"【Live Photo 实况微动附加指令】：生成具有 iPhone 实况照片（Live Photo）呼吸感的动态实况效果。"
-                f"动态轨迹：{transition_zh}；手持相机极轻微呼吸感晃动，环境光影自然流动；"
-                f"【防崩坏铁律】：全程严禁五官变形或肢体扭曲，衣服领口/袖口/面料花纹与人物脸型必须100%锁死一致。"
-            ),
-            "video_i2v_prompt_zh": (
-                f"2.5秒高清电商实况写真（Live Photo）：{subject_zh}，{transition_zh}。"
-                f"微风轻拂发丝与面料褶皱，眼神灵动自然眨眼一次，手持镜头轻微呼吸感，人物与实景背景光影自然融合，五官与服装细节严格恒定不变。"
-            ),
-            "video_i2v_prompt_en": (
-                f"2.5s realistic iPhone Live Photo, subtle natural micro-motion: {subject_zh}, gentle breeze blowing hair and fabric folds, "
-                f"natural eye blink and soft smile, subtle handheld camera breathing motion, seamless environment lighting, strict facial and outfit consistency, 60fps smooth motion."
-            ),
-            "workflow_for_non_live_models": (
-                "【真·人物动作实况双通道】："
-                "通道A（推荐·Codex GPT-Image-2.6直出）：运行 `studio_cli.py codex-live --ref-image <composite_image>`（或用 ImageGen 传入 sprite_sheet_live_prompt_zh 生成 3×2 连续动作序列图后执行 `studio_cli.py pack-live --photo 序列图.png --sprite-sheet`），直接通过 2D FFT 防抖对齐 + MCI 双向光流补帧产出真·人物眨眼微笑动作实况照片；"
-                "通道B（首尾帧/呼吸感实况）：用 start_composite_image 与 end_composite_image 生成首尾帧后运行 `studio_cli.py pack-live --photo 首帧.png --end-photo 尾帧.png`。"
-            ),
-        }
-
     result_payload = {
         "composite_image": str(out_path),
         "style": {"code": args.style, "zh": style_zh, "en": style_en},
@@ -1027,8 +943,6 @@ def cmd_recipe(args: argparse.Namespace) -> None:
         "prompt_zh": zh_prompt,
         "prompt_en": en_prompt,
     }
-    if live_info:
-        result_payload["live_photo"] = live_info
 
     print(
         json.dumps(
@@ -1037,583 +951,6 @@ def cmd_recipe(args: argparse.Namespace) -> None:
             indent=2,
         )
     )
-
-
-def inject_motion_photo_xmp(jpeg_bytes: bytes, mp4_bytes: bytes) -> bytes:
-    """
-    Inject Google Camera / Android / Xiaohongshu standard MotionPhoto XMP metadata into JPEG APP1
-    and append the MP4 video stream at the end of the file.
-    """
-    mp4_len = len(mp4_bytes)
-    xmp_str = (
-        '<x:xmpmeta xmlns:x="adobe:ns:meta/" x:xmptk="Adobe XMP Core 5.1.0-jc003">'
-        '<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">'
-        '<rdf:Description rdf:about="" '
-        'xmlns:GCamera="http://ns.google.com/photos/1.0/camera/" '
-        'xmlns:Camera="http://ns.google.com/photos/1.0/camera/" '
-        'xmlns:Container="http://ns.google.com/photos/1.0/container/" '
-        'xmlns:Item="http://ns.google.com/photos/1.0/container/item/" '
-        'GCamera:MicroVideo="1" '
-        'GCamera:MicroVideoVersion="1" '
-        f'GCamera:MicroVideoOffset="{mp4_len}" '
-        'GCamera:MicroVideoPresentationTimestampUs="0" '
-        'Camera:MotionPhoto="1" '
-        'Camera:MotionPhotoVersion="1" '
-        'Camera:MotionPhotoPresentationTimestampUs="0">'
-        '<Container:Directory><rdf:Seq>'
-        '<rdf:li rdf:parseType="Resource">'
-        '<Item:Mime>image/jpeg</Item:Mime>'
-        '<Item:Semantic>Primary</Item:Semantic>'
-        '<Item:Length>0</Item:Length>'
-        '<Item:Padding>0</Item:Padding>'
-        '</rdf:li>'
-        '<rdf:li rdf:parseType="Resource">'
-        '<Item:Mime>video/mp4</Item:Mime>'
-        '<Item:Semantic>MotionPhoto</Item:Semantic>'
-        f'<Item:Length>{mp4_len}</Item:Length>'
-        '<Item:Padding>0</Item:Padding>'
-        '</rdf:li>'
-        '</rdf:Seq></Container:Directory>'
-        '</rdf:Description></rdf:RDF></x:xmpmeta>'
-    )
-    xmp_payload = b"http://ns.adobe.com/xap/1.0/\x00" + xmp_str.encode("utf-8")
-    seg_len = len(xmp_payload) + 2
-    app1_seg = b"\xff\xe1" + seg_len.to_bytes(2, "big") + xmp_payload
-
-    if jpeg_bytes[:2] != b"\xff\xd8":
-        raise ValueError("Invalid JPEG header")
-    return jpeg_bytes[:2] + app1_seg + jpeg_bytes[2:] + mp4_bytes
-
-
-def find_ffmpeg_binary() -> Optional[str]:
-    try:
-        import imageio_ffmpeg  # type: ignore
-        ff_exe = imageio_ffmpeg.get_ffmpeg_exe()
-        if ff_exe and Path(ff_exe).exists():
-            return str(ff_exe)
-    except Exception:
-        pass
-    ff = shutil.which("ffmpeg")
-    if ff:
-        return ff
-    winget_pkgs = Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
-    if winget_pkgs.exists():
-        found_ff = list(winget_pkgs.rglob("ffmpeg.exe"))
-        if found_ff:
-            return str(found_ff[0])
-    return None
-
-
-def extract_and_stabilize_sprite_frames(
-    sheet_rgb: Any,
-    cols: int = 3,
-    rows: int = 2,
-    target_w: int = 900,
-) -> List[Any]:
-    """
-    Split a 3x2 (6-frame) continuous human-action sprite sheet, stabilize sub-frame shifts
-    via 2D FFT phase correlation, crop border seams cleanly, and upscale with LANCZOS + UnsharpMask.
-    """
-    Image, _ImageDraw, _ImageFont, _ImageOps = ensure_pillow()
-    from PIL import ImageFilter
-
-    sw, sh = sheet_rgb.size
-    cw, ch = sw // cols, sh // rows
-    raw_cells = []
-    for r in range(rows):
-        for c in range(cols):
-            x0, y0 = c * cw, r * ch
-            raw_cells.append(sheet_rgb.crop((x0, y0, x0 + cw, y0 + ch)))
-
-    # 2D FFT phase-correlation stabilization against Frame 0
-    shifts = [(0, 0)]
-    try:
-        import numpy as np  # type: ignore
-        ref_arr = np.asarray(raw_cells[0].convert("L"), dtype=np.float32)
-        ref_arr = ref_arr - ref_arr.mean()
-        f_ref = np.fft.fft2(ref_arr)
-        h_a, w_a = ref_arr.shape
-        for cell in raw_cells[1:]:
-            cur_arr = np.asarray(cell.convert("L"), dtype=np.float32)
-            cur_arr = cur_arr - cur_arr.mean()
-            cross = f_ref * np.conj(np.fft.fft2(cur_arr))
-            denom = np.abs(cross)
-            denom[denom < 1e-8] = 1e-8
-            corr = np.real(np.fft.ifft2(cross / denom))
-            dy, dx = np.unravel_index(np.argmax(corr), corr.shape)
-            if dy > h_a // 2:
-                dy -= h_a
-            if dx > w_a // 2:
-                dx -= w_a
-            dx = int(max(-14, min(14, dx)))
-            dy = int(max(-14, min(14, dy)))
-            shifts.append((dx, dy))
-    except Exception:
-        shifts = [(0, 0) for _ in raw_cells]
-
-    # Safe inner crop margin to eliminate grid borders & shift padding
-    mx = max(6, int(cw * 0.02) + max(abs(s[0]) for s in shifts))
-    my = max(6, int(ch * 0.02) + max(abs(s[1]) for s in shifts))
-    inner_w = max(64, cw - 2 * mx)
-    inner_h = max(64, ch - 2 * my)
-
-    out_w = target_w - (target_w % 2)
-    out_h = int(round(out_w * inner_h / float(inner_w)))
-    out_h -= out_h % 2
-
-    clean_frames = []
-    for cell, (dx, dy) in zip(raw_cells, shifts):
-        # Shift cell by (dx, dy) via crop offset (-dx, -dy)
-        bx0 = mx - dx
-        by0 = my - dy
-        cropped = cell.crop((bx0, by0, bx0 + inner_w, by0 + inner_h))
-        up = cropped.resize((out_w, out_h), Image.Resampling.LANCZOS)
-        up = up.filter(ImageFilter.UnsharpMask(radius=1.15, percent=60, threshold=2))
-        clean_frames.append(up)
-    return clean_frames
-
-
-def synthesize_sprite_live_bundle(
-    clean_frames: List[Any],
-    out_dir: Path,
-    stem: str,
-    cover_index: int = 2,
-) -> Dict[str, Any]:
-    """
-    Turn 6 stabilized human-action frames into:
-    1) High-res single-frame cover photo (*_key_photo.png) & Frame 1 photo (*_frame1_photo.png)
-    2) True-color Animated WebP (*_live_preview.webp) & GIF (*_live_action.gif)
-    3) 24fps Optical-Flow (ffmpeg minterpolate MCI) smooth human-action MP4 (*_motion_live.mp4)
-    4) Single-frame cover True XMP Motion Photo (*_motion_live.jpg)
-    """
-    Image, ImageDraw, ImageFont, _ImageOps = ensure_pillow()
-    from io import BytesIO
-    import subprocess
-    import tempfile
-    import wave
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    safe_idx = max(0, min(len(clean_frames) - 1, cover_index))
-    cover_rgb = clean_frames[safe_idx]
-    frame1_rgb = clean_frames[0]
-
-    key_photo_path = out_dir / f"{stem}_key_photo.png"
-    frame1_photo_path = out_dir / f"{stem}_frame1_photo.png"
-    cover_rgb.save(key_photo_path, format="PNG", compress_level=3)
-    frame1_rgb.save(frame1_photo_path, format="PNG", compress_level=3)
-
-    # Ping-pong / seamless loop sequence: 0 -> 1 -> 2 -> 3 -> 4 -> 5 (-> 0)
-    # Using all 6 sequential loop frames with natural dwell on pose & smile peak
-    seq_frames = list(clean_frames)
-    seq_durations = [420, 320, 460, 480, 340, 380]
-    if len(seq_durations) != len(seq_frames):
-        seq_durations = [380] * len(seq_frames)
-
-    font = load_cjk_font(ImageFont, 18)
-    stamped_webp = []
-    for fr in seq_frames:
-        fc = fr.copy()
-        dr = ImageDraw.Draw(fc)
-        dr.rounded_rectangle([18, 18, 138, 50], radius=16, fill=(15, 23, 42))
-        dr.ellipse([29, 28, 41, 40], fill=(239, 68, 68))
-        dr.text((48, 22), "LIVE 实况", fill=(255, 255, 255), font=font)
-        stamped_webp.append(fc)
-
-    preview_webp = out_dir / f"{stem}_live_preview.webp"
-    stamped_webp[0].save(
-        preview_webp,
-        format="WEBP",
-        save_all=True,
-        append_images=stamped_webp[1:],
-        duration=seq_durations,
-        loop=0,
-        quality=88,
-        method=4,
-    )
-
-    companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
-    motion_jpg_path = None
-    ffmpeg_bin = find_ffmpeg_binary()
-
-    if ffmpeg_bin:
-        with tempfile.TemporaryDirectory() as td:
-            td_p = Path(td)
-            # Save 7 frames (0..5 + 0 at the end) so optical flow closes the loop seamlessly over ~2.6s
-            loop_seq = list(clean_frames) + [clean_frames[0]]
-            for idx, fr in enumerate(loop_seq):
-                fr.save(td_p / f"s_{idx:02d}.png", format="PNG")
-
-            wav_p = td_p / "silence.wav"
-            with wave.open(str(wav_p), "wb") as wf:
-                wf.setnchannels(2)
-                wf.setsampwidth(2)
-                wf.setframerate(44100)
-                wf.writeframes(b"\x00\x00\x00\x00" * int(44100 * 2.65))
-
-            # Bidirectional block-matching Motion Compensated Interpolation (MCI) -> 24fps smooth human action
-            vf_filter = "minterpolate=fps=24:mi_mode=mci:mc_mode=aobmc:me_mode=bidir:vsbmc=1,format=yuv420p"
-            cmd_ff = [
-                ffmpeg_bin, "-y",
-                "-framerate", "2.6",
-                "-i", str(td_p / "s_%02d.png"),
-                "-i", str(wav_p),
-                "-t", "2.60",
-                "-vf", vf_filter,
-                "-c:v", "libx264", "-crf", "18", "-preset", "fast",
-                "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-                str(companion_mp4_path),
-            ]
-            r_ff = subprocess.run(cmd_ff, capture_output=True)
-            if r_ff.returncode == 0 and companion_mp4_path.exists() and companion_mp4_path.stat().st_size >= 10_240:
-                mp4_bytes = companion_mp4_path.read_bytes()
-                buf = BytesIO()
-                # Primary cover MUST be the clean single-frame portrait photo, NOT the 6-panel grid!
-                cover_rgb.save(buf, format="JPEG", quality=95)
-                motion_jpg_path = out_dir / f"{stem}_motion_live.jpg"
-                motion_jpg_path.write_bytes(inject_motion_photo_xmp(buf.getvalue(), mp4_bytes))
-
-    return {
-        "status": "ok",
-        "mode": "sprite_sheet_optical_flow_mci",
-        "frame_count": len(clean_frames),
-        "cover_frame_index": safe_idx,
-        "key_photo_png": str(key_photo_path),
-        "frame1_photo_png": str(frame1_photo_path),
-        "live_preview_webp": str(preview_webp),
-        "companion_mp4": str(companion_mp4_path) if companion_mp4_path.exists() else None,
-        "motion_photo_jpg": str(motion_jpg_path) if motion_jpg_path else None,
-        "platform_guide": {
-            "小红书/安卓相册": "直接上传 motion_photo_jpg（高清单帧人物封面 + 内置XMP视频流，自动点亮LIVE实况标）",
-            "抖音/快手图文实况": "上传 companion_mp4 或 motion_photo_jpg 即可发布实况图文",
-            "高清静态主图": "直接使用 key_photo_png 或 frame1_photo_png",
-        },
-    }
-
-
-def cmd_pack_live(args: argparse.Namespace) -> None:
-    """
-    Package a 3x2 human-action sprite sheet (--sprite-sheet) OR static model photo (+ optional end-frame / MP4) into:
-    1) Animated WebP Live Preview (*_live_preview.webp)
-    2) True XMP Motion Photo (*_motion_live.jpg) with clean single-person cover & H.264 MP4 stream
-    """
-    Image, ImageDraw, ImageFont, ImageOps = ensure_pillow()
-    from io import BytesIO
-
-    photo_path = Path(args.photo).resolve()
-    if not photo_path.exists():
-        raise FileNotFoundError(f"Primary photo not found: {photo_path}")
-
-    out_dir = Path(args.out_dir).resolve() if args.out_dir else (CACHE_DIR / "live_outputs")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = args.name if getattr(args, "name", None) else photo_path.stem
-
-    with Image.open(photo_path) as im0:
-        base_rgb = im0.convert("RGB")
-        w, h = base_rgb.size
-
-    if getattr(args, "sprite_sheet", False):
-        clean_frames = extract_and_stabilize_sprite_frames(
-            base_rgb,
-            cols=getattr(args, "cols", 3),
-            rows=getattr(args, "rows", 2),
-            target_w=getattr(args, "target_width", 900),
-        )
-        bundle = synthesize_sprite_live_bundle(
-            clean_frames,
-            out_dir=out_dir,
-            stem=stem,
-            cover_index=getattr(args, "cover_index", 2),
-        )
-        bundle["source_sprite_sheet"] = str(photo_path)
-        print(json.dumps(bundle, ensure_ascii=False, indent=2))
-        return
-
-    # 1. Generate smooth breathing / keyframe Animated WebP preview
-    preview_webp = out_dir / f"{stem}_live_preview.webp"
-    frames = []
-    durations = []
-    prev_w, prev_h = min(w, 720), min(h, int(720 * h / max(1, w)))
-    f_start = base_rgb.resize((prev_w, prev_h), Image.Resampling.BILINEAR)
-
-    if args.end_photo and Path(args.end_photo).exists():
-        with Image.open(args.end_photo) as im1:
-            f_end = ImageOps.fit(im1.convert("RGB"), (prev_w, prev_h), method=Image.Resampling.BILINEAR)
-        steps = [0.0, 0.2, 0.4, 0.6, 0.8, 1.0, 0.8, 0.6, 0.4, 0.2]
-        for s in steps:
-            blended = Image.blend(f_start, f_end, s)
-            frames.append(blended)
-            durations.append(480 if s in (0.0, 1.0) else 110)
-    else:
-        # Subtle handheld camera breathing & micro-zoom (1.00x -> 1.035x -> 1.00x)
-        scales = [1.0, 1.008, 1.016, 1.024, 1.032, 1.038, 1.032, 1.024, 1.016, 1.008]
-        for sc in scales:
-            cw, ch = int(prev_w / sc), int(prev_h / sc)
-            left = (prev_w - cw) // 2
-            top = int((prev_h - ch) * 0.35)  # Focus on upper-body/face center
-            cropped = f_start.crop((left, top, left + cw, top + ch)).resize((prev_w, prev_h), Image.Resampling.BILINEAR)
-            frames.append(cropped)
-            durations.append(360 if sc in (1.0, 1.038) else 110)
-
-    # Add subtle LIVE badge on preview WebP
-    font = load_cjk_font(ImageFont, 16)
-    stamped_frames = []
-    for fr in frames:
-        fc = fr.copy()
-        dr = ImageDraw.Draw(fc)
-        dr.rounded_rectangle([14, 14, 118, 42], radius=13, fill=(15, 23, 42))
-        dr.ellipse([24, 23, 34, 33], fill=(239, 68, 68))
-        dr.text((40, 17), "LIVE 实况", fill=(255, 255, 255), font=font)
-        stamped_frames.append(fc)
-
-    stamped_frames[0].save(
-        preview_webp,
-        format="WEBP",
-        save_all=True,
-        append_images=stamped_frames[1:],
-        duration=durations,
-        loop=0,
-        quality=82,
-        method=0,
-    )
-
-    # 2. Synthesize real 2.5s H.264 MP4 (if not provided or <10KB) via ffmpeg, then pack Motion Photo (.jpg)
-    motion_jpg_path = None
-    companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
-
-    valid_video_path: Optional[Path] = None
-    if args.video and Path(args.video).exists() and Path(args.video).stat().st_size >= 10_240:
-        valid_video_path = Path(args.video).resolve()
-    else:
-        ffmpeg_bin = find_ffmpeg_binary()
-        if ffmpeg_bin:
-            import math
-            import subprocess
-            import tempfile
-            import wave
-
-            vw = w - (w % 2)
-            vh = h - (h % 2)
-            fps = 30
-            n_frames = 75  # 2.5s @ 30fps
-            with tempfile.TemporaryDirectory() as td:
-                td_p = Path(td)
-                wav_p = td_p / "silence.wav"
-                with wave.open(str(wav_p), "wb") as wf:
-                    wf.setnchannels(2)
-                    wf.setsampwidth(2)
-                    wf.setframerate(44100)
-                    wf.writeframes(b"\x00\x00\x00\x00" * int(44100 * 2.5))
-
-                src_even = base_rgb.resize((vw, vh), Image.Resampling.LANCZOS)
-                end_even = None
-                if args.end_photo and Path(args.end_photo).exists():
-                    with Image.open(args.end_photo) as im_e:
-                        end_even = ImageOps.fit(im_e.convert("RGB"), (vw, vh), method=Image.Resampling.LANCZOS)
-
-                for idx in range(n_frames):
-                    wt = 0.5 - 0.5 * math.cos(2.0 * math.pi * (idx / float(n_frames)))
-                    if end_even is not None:
-                        fr_im = Image.blend(src_even, end_even, wt)
-                    else:
-                        sc = 1.0 + 0.042 * wt
-                        cw, ch = int(vw / sc), int(vh / sc)
-                        lx = (vw - cw) // 2
-                        ty = int((vh - ch) * 0.35)
-                        fr_im = src_even.crop((lx, ty, lx + cw, ty + ch)).resize((vw, vh), Image.Resampling.BICUBIC)
-                    fr_im.save(td_p / f"f_{idx:04d}.jpg", "JPEG", quality=94)
-
-                cmd_ff = [
-                    ffmpeg_bin, "-y",
-                    "-framerate", str(fps),
-                    "-i", str(td_p / "f_%04d.jpg"),
-                    "-i", str(wav_p),
-                    "-t", "2.50",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "19", "-preset", "fast",
-                    "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart",
-                    str(companion_mp4_path),
-                ]
-                r_ff = subprocess.run(cmd_ff, capture_output=True)
-                if r_ff.returncode == 0 and companion_mp4_path.exists() and companion_mp4_path.stat().st_size >= 10_240:
-                    valid_video_path = companion_mp4_path
-
-    if valid_video_path and valid_video_path.exists():
-        ffmpeg_bin = find_ffmpeg_binary()
-        if ffmpeg_bin and valid_video_path != companion_mp4_path:
-            import subprocess
-            # Trim to 3.0s Live Photo standard with stereo 44.1kHz AAC audio track
-            subprocess.run(
-                [
-                    ffmpeg_bin, "-y", "-i", str(valid_video_path),
-                    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
-                    "-t", "3.0",
-                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "fast",
-                    "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart",
-                    str(companion_mp4_path),
-                ],
-                capture_output=True,
-            )
-        if not companion_mp4_path.exists() or companion_mp4_path.stat().st_size < 10_240:
-            shutil.copy2(valid_video_path, companion_mp4_path)
-        mp4_bytes = companion_mp4_path.read_bytes()
-        buf = BytesIO()
-        base_rgb.save(buf, format="JPEG", quality=94)
-        motion_bytes = inject_motion_photo_xmp(buf.getvalue(), mp4_bytes)
-        motion_jpg_path = out_dir / f"{stem}_motion_live.jpg"
-        motion_jpg_path.write_bytes(motion_bytes)
-    else:
-        companion_mp4_path = None
-
-    print(
-        json.dumps(
-            {
-                "status": "ok",
-                "source_photo": str(photo_path),
-                "source_end_photo": str(Path(args.end_photo).resolve()) if args.end_photo else None,
-                "source_video": str(Path(args.video).resolve()) if args.video else None,
-                "live_preview_webp": str(preview_webp),
-                "motion_photo_jpg": str(motion_jpg_path) if motion_jpg_path else None,
-                "companion_mp4": str(companion_mp4_path) if companion_mp4_path else None,
-                "platform_guide": {
-                    "小红书/安卓相册": "直接上传或导入 motion_photo_jpg（内置GCamera/MotionPhoto双标准XMP视频流，自动点亮LIVE实况标）或companion_mp4",
-                    "抖音/快手图文实况": "在发布图文时直接勾选 companion_mp4 或 motion_photo_jpg 即可作为实况图文发布",
-                },
-            },
-            ensure_ascii=False,
-            indent=2,
-        )
-    )
-
-
-def cmd_codex_live(args: argparse.Namespace) -> None:
-    """
-    Directly invoke local Codex OAuth backend with OpenAI's latest GPT-Image-2.6
-    (`gpt-image-2.6-sunburst` or `gpt-image-2.6-flare`) to generate a 6-frame continuous
-    human-action sprite sheet from a 3-in-1 reference board (or auto-built recipe),
-    then automatically run 2D FFT stabilization + MCI optical-flow 24fps synthesis + XMP Motion Photo packing!
-    """
-    import base64
-    import uuid
-    from io import BytesIO, StringIO
-    import contextlib
-
-    Image, _ImageDraw, _ImageFont, _ImageOps = ensure_pillow()
-
-    auth_path = Path(args.auth_file).expanduser().resolve()
-    if not auth_path.exists():
-        raise FileNotFoundError(f"Codex auth.json not found at {auth_path}. Please sign in to Codex CLI first.")
-
-    auth_obj = json.loads(auth_path.read_text(encoding="utf-8"))
-    tokens = auth_obj.get("tokens") or {}
-    access_token = tokens.get("access_token", "")
-    account_id = tokens.get("account_id", "")
-    if not access_token or not account_id:
-        raise ValueError("Missing access_token or account_id in ~/.codex/auth.json")
-
-    ref_image_path: Optional[Path] = Path(args.ref_image).resolve() if args.ref_image else None
-    sprite_prompt = args.prompt or ""
-    recipe_meta = None
-
-    # If no ref_image is given, auto-build a 3-in-1 recipe board in 0.2s from --auto / --portrait / --costume / --pose
-    if not ref_image_path and (args.auto or args.portrait or args.costume or args.pose):
-        rec_ns = argparse.Namespace(
-            auto=args.auto,
-            portrait=args.portrait,
-            costume=args.costume,
-            pose=args.pose,
-            style=args.style,
-            subject=args.subject,
-            extra_prompt=args.scene,
-            scene=args.scene,
-            angle="front",
-            shot="full",
-            depth=False,
-            include_depth=False,
-            live=True,
-            out=None,
-        )
-        buf_out = StringIO()
-        with contextlib.redirect_stdout(buf_out):
-            cmd_recipe(rec_ns)
-        recipe_meta = json.loads(buf_out.getvalue())
-        ref_image_path = Path(recipe_meta["composite_image"]).resolve()
-
-    action_desc = args.action or "自然眨眼一次、露出温柔甜美微笑、单手轻柔抬起轻触衣领/耳畔发丝，微风吹动衣摆与发丝后自然回落至初始站姿"
-    if not sprite_prompt:
-        if recipe_meta and not args.action:
-            sprite_prompt = recipe_meta.get("live_photo", {}).get("sprite_sheet_live_prompt_zh", "")
-        else:
-            base_zh = recipe_meta.get("prompt_zh", "") if recipe_meta else ""
-            scene_desc = args.scene or "通透自然采光的时尚街拍实景，85mm f/1.8 真实光学浅景深"
-            sprite_prompt = (
-                f"【3×2 六帧连续人物动作实况序列图 (6-Frame Seamless Loop Animation Sprite Sheet · 严禁分割线与文字水印)】\n"
-                f"{base_zh}\n"
-                f"【序列帧排版与连续动作硬性要求】：请将整张画面严格均分为 3列×2行（共6个紧邻无缝的等大矩形单人竖版取景格，零边框、零白边、零文字标签）。"
-                f"6 格画面的相机机位、实景背景（{scene_desc}）、人物五官脸型发型（严格对齐【参考图1】）与全身服饰材质细节（严格对齐【参考图2】，绝不画成塑料人台）必须 100% 锁死恒定，仅人物神态与肢体展现如下连贯丝滑的 2.5 秒实况动作（{action_desc}）：\n"
-                f"- 第1帧(左上)：按【参考图3】初始姿势自然看向镜头，眼神清澈灵动；\n"
-                f"- 第2帧(中上)：微风轻拂发丝与衣摆，模特自然闭眼完成一次轻柔眨眼，手部开始微抬启动动作；\n"
-                f"- 第3帧(右上)：睁眼露出温柔灵动微笑，核心动作自然展开（{action_desc}）；\n"
-                f"- 第4帧(左下)：头部微倾、笑意与动作达到最美高光瞬间，微风吹动发丝与衣摆呈现真实动态飘逸感；\n"
-                f"- 第5帧(中下)：抬起的手部与身姿自然舒缓回落，表情保持温柔浅笑；\n"
-                f"- 第6帧(右下)：平滑回到与第1帧完全衔接的初始姿态，形成完美无缝循环（Seamless Loop）。"
-            )
-
-    headers = {
-        "Authorization": f"Bearer {access_token}",
-        "ChatGPT-Account-Id": account_id,
-        "Content-Type": "application/json",
-        "Accept": "application/json",
-        "User-Agent": "codex_cli_rs/0.1.0 (Windows 10.0.26100; x86_64)",
-        "x-codex-image-turn-id": str(uuid.uuid4()),
-    }
-
-    t0 = time.time()
-    if ref_image_path and ref_image_path.exists():
-        mime = "image/png" if ref_image_path.suffix.lower() == ".png" else "image/jpeg"
-        b64_ref = f"data:{mime};base64," + base64.b64encode(ref_image_path.read_bytes()).decode("ascii")
-        endpoint = "https://chatgpt.com/backend-api/codex/images/edits"
-        payload: Dict[str, Any] = {
-            "model": args.model,
-            "images": [{"image_url": b64_ref}],
-            "prompt": sprite_prompt,
-            "size": args.size,
-            "quality": args.quality,
-        }
-    else:
-        endpoint = "https://chatgpt.com/backend-api/codex/images/generations"
-        payload = {
-            "model": args.model,
-            "prompt": sprite_prompt,
-            "size": args.size,
-            "quality": args.quality,
-            "n": 1,
-        }
-
-    req = urllib.request.Request(endpoint, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-    with urllib.request.urlopen(req, timeout=240) as resp:
-        resp_body = json.loads(resp.read().decode("utf-8"))
-        img_bytes = base64.b64decode(resp_body["data"][0]["b64_json"])
-    gen_elapsed = round(time.time() - t0, 2)
-
-    out_dir = Path(args.out_dir).resolve() if args.out_dir else (CACHE_DIR / "live_outputs")
-    out_dir.mkdir(parents=True, exist_ok=True)
-    stem = args.name or f"codex26_live_{int(time.time())}"
-    raw_sheet_path = out_dir / f"{stem}_spritesheet.png"
-    raw_sheet_path.write_bytes(img_bytes)
-
-    with Image.open(BytesIO(img_bytes)) as sh_im:
-        clean_frames = extract_and_stabilize_sprite_frames(
-            sh_im.convert("RGB"), cols=3, rows=2, target_w=args.target_width
-        )
-    bundle = synthesize_sprite_live_bundle(
-        clean_frames, out_dir=out_dir, stem=stem, cover_index=args.cover_index
-    )
-    bundle["codex_model"] = args.model
-    bundle["generation_elapsed_sec"] = gen_elapsed
-    bundle["reference_board"] = str(ref_image_path) if ref_image_path else None
-    bundle["raw_spritesheet_png"] = str(raw_sheet_path)
-    if recipe_meta:
-        bundle["recipe_panels"] = recipe_meta.get("panels")
-    print(json.dumps(bundle, ensure_ascii=False, indent=2))
 
 
 def cmd_preload(args: argparse.Namespace) -> None:
@@ -1647,11 +984,11 @@ def cmd_preload(args: argparse.Namespace) -> None:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="studio_cli.py",
-        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.4.0)",
+        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.5.0)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("stats", help="Show catalog statistics, categories, and 15 style presets")
+    sub.add_parser("stats", help="Show catalog statistics, categories, and 16 style presets")
 
     p_search = sub.add_parser("search", help="Search across pose/costume/anime/portrait catalogs")
     p_search.add_argument("keywords", nargs="*", help="Optional positional search keywords")
@@ -1665,7 +1002,7 @@ def build_parser() -> argparse.ArgumentParser:
     p_search.add_argument("--limit", "-n", type=int, default=12, help="Max results to return")
 
     p_detail = sub.add_parser("detail", help="Get full metadata for one or more asset IDs")
-    p_detail.add_argument("ids", nargs="+", help="Asset IDs (e.g. full_single_P001_front SPR-0001 charadb-O001)")
+    p_detail.add_argument("ids", nargs="+", help="Asset IDs (e.g. xhs_viral_P001_diag XHS-0001 charadb-XHS01)")
 
     p_random = sub.add_parser("random", help="Randomly pick assets from catalog")
     p_random.add_argument("--type", choices=["all", "pose", "costume", "anime", "portrait"], default="all")
@@ -1674,19 +1011,18 @@ def build_parser() -> argparse.ArgumentParser:
     p_random.add_argument("--count", "-n", type=int, default=3)
 
     p_fetch = sub.add_parser("fetch", help="Resolve or download asset image(s) to local cache")
-    p_fetch.add_argument("ids", nargs="+", help="One or more Asset IDs (e.g. full_single_P001_front)")
+    p_fetch.add_argument("ids", nargs="+", help="One or more Asset IDs (e.g. xhs_viral_P001_diag)")
     p_fetch.add_argument("--type", choices=["pose", "costume", "anime", "portrait"], default=None)
     p_fetch.add_argument("--depth", action="store_true", help="Fetch ControlNet depth map (for pose)")
-    p_fetch.add_argument("--live-preview", action="store_true", help="Fetch animated Live Photo motion preview WebP (for pose)")
     p_fetch.add_argument("--flip", action="store_true", help="Horizontally flip the fetched image")
     p_fetch.add_argument("--resize-mode", choices=["original", "crop", "pad"], default="original")
     p_fetch.add_argument("--out-dir", type=str, default=None, help="Optional directory to save processed image(s)")
 
     p_recipe = sub.add_parser("recipe", help="Create 3-in-1 composite reference image & bilingual prompt")
     p_recipe.add_argument("--auto", "-a", type=str, default=None, help="One-shot natural language query to auto-select portrait, costume, and pose in 0.2s")
-    p_recipe.add_argument("--portrait", type=str, default=None, help="Portrait ID, keywords (e.g. '长发 微卷'), or local image path")
-    p_recipe.add_argument("--costume", type=str, default=None, help="Costume/Anime ID, keywords (e.g. '春季 风衣'), or local image path")
-    p_recipe.add_argument("--pose", type=str, default=None, help="Pose ID, keywords (e.g. '站姿 斜侧'), or local image path")
+    p_recipe.add_argument("--portrait", type=str, default=None, help="Portrait ID, keywords (e.g. '网红 高颅顶 大波浪'), or local image path")
+    p_recipe.add_argument("--costume", type=str, default=None, help="Costume/Anime ID, keywords (e.g. '小红书 美拉德 巴恩风'), or local image path")
+    p_recipe.add_argument("--pose", type=str, default=None, help="Pose ID, keywords (e.g. '抖音 松弛感 回眸'), or local image path")
     p_recipe.add_argument("--style", choices=list(STYLE_PRESETS.keys()), default="realistic")
     p_recipe.add_argument("--subject", type=str, default=None, help="Custom subject description")
     p_recipe.add_argument("--extra-prompt", type=str, default=None, help="Additional scene/lighting instructions")
@@ -1695,53 +1031,12 @@ def build_parser() -> argparse.ArgumentParser:
     p_recipe.add_argument("--shot", choices=["full", "upper", "closeup"], default="full")
     p_recipe.add_argument("--depth", action="store_true", help="Use depth map as the pose panel")
     p_recipe.add_argument("--include-depth", action="store_true", help="Include both pose and depth map panels")
-    p_recipe.add_argument("--live", action="store_true", help="Generate Live Photo micro-motion prompts & continuous angle transition")
     p_recipe.add_argument("--out", type=str, default=None, help="Output PNG path for composite sheet")
 
     p_preload = sub.add_parser("preload", help="Pre-download assets into local cache")
     p_preload.add_argument("--type", choices=["all", "pose", "costume", "anime", "portrait"], default="all")
     p_preload.add_argument("--limit", type=int, default=50)
     p_preload.add_argument("--workers", type=int, default=8)
-
-    p_pack_live = sub.add_parser("pack-live", help="Synthesize Animated Live Preview WebP & True XMP Motion Photo (.jpg + .mp4)")
-    p_pack_live.add_argument("--photo", required=True, type=str, help="Primary static model photo OR 3x2 human-action sprite sheet (.png/.jpg/.webp)")
-    p_pack_live.add_argument("--sprite-sheet", action="store_true", help="Treat --photo as a 3x2 (6-frame) continuous human-action sprite sheet, run 2D FFT stabilization + MCI optical-flow 24fps synthesis, and use single-person frame as Motion Photo cover")
-    p_pack_live.add_argument("--cols", default=3, type=int, help="Sprite sheet columns (default 3)")
-    p_pack_live.add_argument("--rows", default=2, type=int, help="Sprite sheet rows (default 2)")
-    p_pack_live.add_argument("--cover-index", default=2, type=int, help="Frame index (0..5) to use as high-res single-person cover photo (default 2 = Frame 3 smile peak)")
-    p_pack_live.add_argument("--target-width", default=900, type=int, help="Target upscaled width for each stabilized frame (default 900)")
-    p_pack_live.add_argument("--name", default=None, type=str, help="Custom output filename stem")
-    p_pack_live.add_argument("--end-photo", default=None, type=str, help="Optional continuous end-frame photo for zero-cost motion interpolation")
-    p_pack_live.add_argument("--video", default=None, type=str, help="Optional 2-3s MP4/MOV video to embed into XMP Motion Photo (.jpg)")
-    p_pack_live.add_argument("--out-dir", default=None, type=str, help="Output directory for live assets")
-
-    p_codex_live = sub.add_parser(
-        "codex-live",
-        help="Invoke local Codex GPT-Image-2.6 (`gpt-image-2.6-sunburst` / `gpt-image-2.6-flare`) to generate a 6-frame human-action Live Photo bundle",
-    )
-    p_codex_live.add_argument("--ref-image", default=None, type=str, help="3-in-1 composite reference board or portrait/outfit reference image")
-    p_codex_live.add_argument("--auto", "-a", default=None, type=str, help="Or auto-select portrait+costume+pose in 0.2s via natural keywords (e.g. '秋季 大衣 街拍')")
-    p_codex_live.add_argument("--portrait", default=None, type=str, help="Portrait ID, keywords, or local path")
-    p_codex_live.add_argument("--costume", default=None, type=str, help="Costume ID, keywords, or local path")
-    p_codex_live.add_argument("--pose", default=None, type=str, help="Pose ID, keywords, or local path")
-    p_codex_live.add_argument("--style", choices=list(STYLE_PRESETS.keys()), default="realistic")
-    p_codex_live.add_argument("--subject", default=None, type=str, help="Custom model description")
-    p_codex_live.add_argument("--scene", default=None, type=str, help="Custom scene & global illumination description")
-    p_codex_live.add_argument("--action", default=None, type=str, help="Custom human action sequence (e.g. '眨眼微笑、抬手轻抚衣领、微风吹拂长发与裙摆')")
-    p_codex_live.add_argument("--prompt", default=None, type=str, help="Override full sprite-sheet generation prompt")
-    p_codex_live.add_argument(
-        "--model",
-        choices=["gpt-image-2.6-sunburst", "gpt-image-2.6-flare", "gpt-image-1.5", "gpt-image-1"],
-        default="gpt-image-2.6-sunburst",
-        help="Codex image model: gpt-image-2.6-sunburst (highest consistency) or gpt-image-2.6-flare (fastest)",
-    )
-    p_codex_live.add_argument("--size", default="1024x1536", type=str, help="Generation size (1024x1536 or 1536x1536)")
-    p_codex_live.add_argument("--quality", choices=["low", "medium", "high"], default="medium")
-    p_codex_live.add_argument("--cover-index", default=2, type=int, help="Frame index (0..5) for single-person cover photo (default 2)")
-    p_codex_live.add_argument("--target-width", default=900, type=int, help="Upscaled frame width (default 900)")
-    p_codex_live.add_argument("--name", default=None, type=str, help="Custom output filename stem")
-    p_codex_live.add_argument("--out-dir", default=None, type=str, help="Output directory")
-    p_codex_live.add_argument("--auth-file", default=str(Path.home() / ".codex" / "auth.json"), type=str, help="Path to ~/.codex/auth.json")
 
     return parser
 
@@ -1757,8 +1052,6 @@ def main() -> None:
         "fetch": cmd_fetch,
         "recipe": cmd_recipe,
         "preload": cmd_preload,
-        "pack-live": cmd_pack_live,
-        "codex-live": cmd_codex_live,
     }
     dispatch[args.command](args)
 

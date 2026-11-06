@@ -1231,20 +1231,6 @@ def synthesize_sprite_live_bundle(
         method=4,
     )
 
-    action_gif = out_dir / f"{stem}_live_action.gif"
-    gif_w = min(540, cover_rgb.size[0])
-    gif_h = int(round(gif_w * cover_rgb.size[1] / float(cover_rgb.size[0])))
-    gif_frames = [fr.resize((gif_w, gif_h), Image.Resampling.LANCZOS) for fr in stamped_webp]
-    gif_frames[0].save(
-        action_gif,
-        format="GIF",
-        save_all=True,
-        append_images=gif_frames[1:],
-        duration=seq_durations,
-        loop=0,
-        optimize=False,
-    )
-
     companion_mp4_path = out_dir / f"{stem}_motion_live.mp4"
     motion_jpg_path = None
     ffmpeg_bin = find_ffmpeg_binary()
@@ -1294,14 +1280,12 @@ def synthesize_sprite_live_bundle(
         "key_photo_png": str(key_photo_path),
         "frame1_photo_png": str(frame1_photo_path),
         "live_preview_webp": str(preview_webp),
-        "live_action_gif": str(action_gif),
         "companion_mp4": str(companion_mp4_path) if companion_mp4_path.exists() else None,
         "motion_photo_jpg": str(motion_jpg_path) if motion_jpg_path else None,
         "platform_guide": {
-            "小红书/安卓相册": "直接上传 motion_photo_jpg（高清单帧人物封面 + 内置24fps光流人物动作MP4视频流，自动点亮LIVE实况标）",
-            "抖音/快手图文实况": "上传 companion_mp4 或 motion_photo_jpg 即可发布真·人物动作实况",
-            "高清静态主图": "直接使用 key_photo_png（微笑抬手高光单帧）或 frame1_photo_png（初始站姿单帧）",
-            "电脑端/对话内直接观看": "打开 live_preview_webp 或 live_action.gif 即可查看人物眨眼、微笑、抬手抚衣领、衣摆随风飘动循环效果",
+            "小红书/安卓相册": "直接上传 motion_photo_jpg（高清单帧人物封面 + 内置XMP视频流，自动点亮LIVE实况标）",
+            "抖音/快手图文实况": "上传 companion_mp4 或 motion_photo_jpg 即可发布实况图文",
+            "高清静态主图": "直接使用 key_photo_png 或 frame1_photo_png",
         },
     }
 
@@ -1453,9 +1437,24 @@ def cmd_pack_live(args: argparse.Namespace) -> None:
                     valid_video_path = companion_mp4_path
 
     if valid_video_path and valid_video_path.exists():
-        if valid_video_path != companion_mp4_path:
+        ffmpeg_bin = find_ffmpeg_binary()
+        if ffmpeg_bin and valid_video_path != companion_mp4_path:
+            import subprocess
+            # Trim to 3.0s Live Photo standard with stereo 44.1kHz AAC audio track
+            subprocess.run(
+                [
+                    ffmpeg_bin, "-y", "-i", str(valid_video_path),
+                    "-f", "lavfi", "-i", "anullsrc=channel_layout=stereo:sample_rate=44100",
+                    "-t", "3.0",
+                    "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "18", "-preset", "fast",
+                    "-c:a", "aac", "-b:a", "128k", "-shortest", "-movflags", "+faststart",
+                    str(companion_mp4_path),
+                ],
+                capture_output=True,
+            )
+        if not companion_mp4_path.exists() or companion_mp4_path.stat().st_size < 10_240:
             shutil.copy2(valid_video_path, companion_mp4_path)
-        mp4_bytes = valid_video_path.read_bytes()
+        mp4_bytes = companion_mp4_path.read_bytes()
         buf = BytesIO()
         base_rgb.save(buf, format="JPEG", quality=94)
         motion_bytes = inject_motion_photo_xmp(buf.getvalue(), mp4_bytes)
@@ -1477,7 +1476,6 @@ def cmd_pack_live(args: argparse.Namespace) -> None:
                 "platform_guide": {
                     "小红书/安卓相册": "直接上传或导入 motion_photo_jpg（内置GCamera/MotionPhoto双标准XMP视频流，自动点亮LIVE实况标）或companion_mp4",
                     "抖音/快手图文实况": "在发布图文时直接勾选 companion_mp4 或 motion_photo_jpg 即可作为实况图文发布",
-                    "电脑端/对话内预览": "直接打开 live_preview_webp 查看循环动态实况效果",
                 },
             },
             ensure_ascii=False,
@@ -1538,18 +1536,26 @@ def cmd_codex_live(args: argparse.Namespace) -> None:
             cmd_recipe(rec_ns)
         recipe_meta = json.loads(buf_out.getvalue())
         ref_image_path = Path(recipe_meta["composite_image"]).resolve()
-        if not sprite_prompt:
-            sprite_prompt = recipe_meta.get("live_photo", {}).get("sprite_sheet_live_prompt_zh", "")
 
     action_desc = args.action or "自然眨眼一次、露出温柔甜美微笑、单手轻柔抬起轻触衣领/耳畔发丝，微风吹动衣摆与发丝后自然回落至初始站姿"
     if not sprite_prompt:
-        scene_desc = args.scene or "通透自然采光的时尚街拍实景，85mm f/1.8 真实光学浅景深"
-        sprite_prompt = (
-            f"请严格绘制一张 3列×2行（共6格，零边框、零白边、零文字标签）的高清连续人物动作实况序列图（Seamless 3x2 Live Photo Animation Sprite Sheet）。"
-            f"6 格画面的相机机位、实景背景（{scene_desc}）、人物五官发型与全身服饰细节必须严格对齐参考图且 100% 锁死恒定（绝不照搬人台假人或灰白底）："
-            f"第1帧(左上)初始自然姿势看镜头 -> 第2帧(中上)微风轻拂发丝衣摆并自然闭眼眨眼 -> 第3帧(右上)睁眼温柔微笑并开始动作（{action_desc}） -> "
-            f"第4帧(左下)动作与笑意达到最灵动高光瞬间，衣摆随风微扬 -> 第5帧(中下)手部与姿态自然平滑回落 -> 第6帧(右下)平稳回到第1帧初始姿态形成无缝循环。"
-        )
+        if recipe_meta and not args.action:
+            sprite_prompt = recipe_meta.get("live_photo", {}).get("sprite_sheet_live_prompt_zh", "")
+        else:
+            base_zh = recipe_meta.get("prompt_zh", "") if recipe_meta else ""
+            scene_desc = args.scene or "通透自然采光的时尚街拍实景，85mm f/1.8 真实光学浅景深"
+            sprite_prompt = (
+                f"【3×2 六帧连续人物动作实况序列图 (6-Frame Seamless Loop Animation Sprite Sheet · 严禁分割线与文字水印)】\n"
+                f"{base_zh}\n"
+                f"【序列帧排版与连续动作硬性要求】：请将整张画面严格均分为 3列×2行（共6个紧邻无缝的等大矩形单人竖版取景格，零边框、零白边、零文字标签）。"
+                f"6 格画面的相机机位、实景背景（{scene_desc}）、人物五官脸型发型（严格对齐【参考图1】）与全身服饰材质细节（严格对齐【参考图2】，绝不画成塑料人台）必须 100% 锁死恒定，仅人物神态与肢体展现如下连贯丝滑的 2.5 秒实况动作（{action_desc}）：\n"
+                f"- 第1帧(左上)：按【参考图3】初始姿势自然看向镜头，眼神清澈灵动；\n"
+                f"- 第2帧(中上)：微风轻拂发丝与衣摆，模特自然闭眼完成一次轻柔眨眼，手部开始微抬启动动作；\n"
+                f"- 第3帧(右上)：睁眼露出温柔灵动微笑，核心动作自然展开（{action_desc}）；\n"
+                f"- 第4帧(左下)：头部微倾、笑意与动作达到最美高光瞬间，微风吹动发丝与衣摆呈现真实动态飘逸感；\n"
+                f"- 第5帧(中下)：抬起的手部与身姿自然舒缓回落，表情保持温柔浅笑；\n"
+                f"- 第6帧(右下)：平滑回到与第1帧完全衔接的初始姿态，形成完美无缝循环（Seamless Loop）。"
+            )
 
     headers = {
         "Authorization": f"Bearer {access_token}",

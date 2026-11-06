@@ -65,28 +65,10 @@ python "<SKILL_DIR>/scripts/studio_cli.py" search <关键词> --type <all|pose|c
      [--scene "可选自定义场景；若不传则自动根据服装季节与品类匹配真实实景与全局光影"]
    ```
    - 该命令内置 **Scene-First 实景环境与全局光影融合引擎 (`build_smart_scene_and_lighting`)**，会自动根据穿搭季节/品类推导匹配的真实三维实景、环境主光源色温、发丝边缘逆光（Rim Light）、脚底地面接触阴影（Contact Shadow）与 85mm f/1.8 光学浅景深，彻底消除“人物与背景割裂像抠图”的问题。
-   - **【面向无原生实况功能的模型 · 首尾帧双锚点与实况打包 (`--live` & `pack-live`)】**：
-     - 当加上 `--live` 时，`recipe` 会同时输出：
-       1. `live_pose_preview_webp`：该动作的 3D 动态循环预览动图；
-       2. `start_composite_image`（首帧三合一参考板）与 `end_composite_image`（保持人像与衣服 100% 不变、仅将第 3 栏姿势自动替换为相邻连续机位如 `_front -> _diag` 的**尾帧三合一参考板**）；
-       3. `end_frame_prompt_zh`（尾帧成片专用提示词）与 `video_i2v_prompt_zh`（2.5 秒微动视频指令）。
-     - 支持**三通道交付真·人物动作实况照片（Motion Photo）**：
-       - **通道 1（最强推荐 · 本机 Codex `GPT-Image-2.6` 直出真·人物动作实况）**：若本机已登录 Codex（存在 `~/.codex/auth.json`），可直接一条命令调用最新 `gpt-image-2.6-sunburst`（高精锁脸版）或 `gpt-image-2.6-flare`（极速版）绘制 3×2 六帧连续人物动作序列（眨眼、微笑、抬手抚衣领/发丝、风吹衣摆），并自动完成 2D FFT 亚像素防抖对齐 + `ffmpeg minterpolate` 双向光流 24fps 补帧 + 单帧超清封面 XMP Motion Photo 合成：
-         ```bash
-         python "<SKILL_DIR>/scripts/studio_cli.py" codex-live --ref-image "<composite_image>" [--action "眨眼微笑、抬手轻抚衣领、微风吹拂长发与衣摆"]
-         ```
-       - **通道 2（通用生图模型 · 3×2 连续动作序列光流实况）**：对没有原生实况接口的模型（如内置 `ImageGen`），将 `composite_image` 与 `sprite_sheet_live_prompt_zh` 传给 `ImageGen` 生成 1 张 3×2 连续人物动作序列图后，运行：
-         ```bash
-         python "<SKILL_DIR>/scripts/studio_cli.py" pack-live --photo "<3x2序列图.png>" --sprite-sheet
-         ```
-         自动切分防抖、光流补帧并提取高清单人微笑帧作为封面，产出 `*_key_photo.png`、`*_live_preview.webp`、`*_live_action.gif`、`*_motion_live.mp4` 与真·实况照片 `*_motion_live.jpg`。
-       - **通道 3（首尾帧 / `VideoGen` 实况合成）**：用 `ImageGen` 生成静态成片（或配合 `VideoGen` 生成微动 MP4）后运行：
-         ```bash
-         python "<SKILL_DIR>/scripts/studio_cli.py" pack-live --photo "<首帧成片.png>" [--end-photo "<尾帧成片.png>"] [--video "<微动视频.mp4>"]
-         ```
-         自动向 JPEG 注入 Google Camera / Android `MotionPhoto` 双标准 XMP 元数据并内嵌 MP4 视频流，产出小红书与手机相册原生点亮 `LIVE` 标的 `*_motion_live.jpg`。
+   - **【可选首尾帧参考板与 Motion Photo 打包 (`--live` & `pack-live`)】**：
+     - 当显式传入 `--live` 时，`recipe` 会额外输出相邻连续机位的**尾帧三合一参考板 (`end_composite_image`)** 与实况提示词，并支持通过 `pack-live --photo "<成片.png>"` 将静态成片打包为小红书/安卓相册可识别的 `*_motion_live.jpg`。
 
 ### 第三步：联动生图与交付展示 (`ImageGen` + `present_files`)
 
 1. 若用户希望**直接看到最终生成的人物穿搭/立绘成片**，可在第 1 回合并行调用 `recipe` 与 `ToolSearch(tool_names=["ImageGen"])`，随后直接调用 `ImageGen`（`image1` 传入 `composite_image` 路径，`prompt` 完整传入 `prompt_zh`，`quality` 默认传 `"medium"` 以兼顾商业级高清画质与最快生成速度）。
-2. 若用户明确要求生成**动态实况图（Live Photo）**，在 `ImageGen` 出图后可继续调用 `pack-live`（或先调 `VideoGen` 再调 `pack-live`），并将生成的**最终实景成片**、**动态实况预览图 (`*_live_preview.webp` / `*_motion_live.jpg`)** 与**三合一参考拼图**通过 `present_files` 一并展示给用户。
+2. 将生成的**最终实景成片**与**三合一参考拼图**通过 `present_files` 一并展示给用户。

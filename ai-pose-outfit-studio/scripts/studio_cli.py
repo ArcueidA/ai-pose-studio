@@ -241,6 +241,7 @@ def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[st
     stop_words = {"的", "与", "和", "风", "感", "款", "穿搭", "造型", "模特", "参考", "女生", "女性", "单人"}
     tokens = [t for t in raw_tokens if t not in stop_words] or raw_tokens
     wants_influencer = any(any(hw in tk for hw in INFLUENCER_HINT_WORDS) for tk in raw_tokens)
+    wants_kid = any(any(kw in tk for kw in ("童", "娃", "孩", "kid", "child")) for tk in raw_tokens)
 
     expanded_groups: List[List[str]] = []
     for tk in tokens:
@@ -294,6 +295,11 @@ def find_item_by_id(asset_id: str, asset_type: Optional[str] = None) -> Tuple[st
                 score += 0.3
             if wants_influencer and ("xhs" in aid_s or "网红" in blob_s or "小红书" in blob_s or "抖音" in blob_s):
                 score += 4.5
+            is_kid_item = ("童装" in blob_s or "萌娃" in blob_s or "男童" in blob_s or "女童" in blob_s or "xhs-k" in aid_s)
+            if wants_kid and is_kid_item:
+                score += 8.0
+            elif not wants_kid and is_kid_item:
+                score -= 8.0
             if atype == "pose" and ("标准系" in str(item.get("体系") or "") or "网红" in str(item.get("体系") or "")):
                 score += 2.5
             scored_candidates.append((score, atype, item))

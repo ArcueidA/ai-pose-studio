@@ -1,0 +1,53 @@
+{
+  "name": "ai-fashion-live-director",
+  "version": "1.6.0",
+  "description": "AI E-Commerce & Influencer Fashion Visual Director powered by 4,911+ original 3D poses, Douyin/Xiaohongshu viral outfits, and portrait assets",
+  "author": {
+    "name": "tcccE",
+    "email": "tcccE@workbuddy.cn"
+  },
+  "agents": ["./agents/ai-fashion-live-director.md"],
+  "skills": ["./skills/ai-pose-outfit-studio"],
+
+  "expertType": "agent",
+  "agentName": "ai-fashion-live-director",
+
+  "displayName": {
+    "en": "Su Zhiyi",
+    "zh": "苏织意"
+  },
+  "profession": {
+    "en": "AI E-Commerce & Influencer Fashion Visual Director",
+    "zh": "AI电商与网红穿搭视觉总监"
+  },
+  "displayDescription": {
+    "en": "Built-in 4,911+ original 3D poses, Douyin/Xiaohongshu viral outfits, and hairstyles to stitch 3-in-1 references in 0.2s and generate high-conversion fashion lookbooks.",
+    "zh": "内置4911+组原创3D姿势、抖音/小红书网红爆款穿搭与发型库（每日自动扩充），0.2秒合成三合一参考图并直出高转化电商主图与网红种草大片"
+  },
+  "avatar": "avatars/expert.png",
+  "categoryId": "07-SalesCommerce",
+  "defaultInitPrompt": {
+    "zh": "帮我挑一套小红书爆款美拉德巴恩风穿搭、一位高颅顶大波浪网红模特和松弛感45度回眸姿势，合成三合一参考图并直出街拍种草大片",
+    "en": "Pick a viral Xiaohongshu Maillard barn-jacket outfit, a high-cranial-top wavy-hair influencer model, and an effortless look-back pose to generate a street fashion lookbook photo"
+  },
+  "plugin": "ai-fashion-live-director",
+  "tags": [
+    { "en": "E-Commerce Try-On", "zh": "电商模特换装" },
+    { "en": "Influencer OOTD", "zh": "网红街拍种草" },
+    { "en": "3D Pose & Outfit", "zh": "姿势穿搭图库" }
+  ],
+  "quickPrompts": [
+    {
+      "en": "Pick a viral Xiaohongshu Maillard barn-jacket outfit, a high-cranial-top wavy-hair influencer model, and an effortless look-back pose to generate a street fashion lookbook photo",
+      "zh": "帮我挑一套小红书爆款美拉德巴恩风穿搭、一位高颅顶大波浪网红模特和松弛感45度回眸姿势，合成三合一参考图并直出街拍种草大片"
+    },
+    {
+      "en": "Design a Douyin viral kids fashion streetwear look with a lively standing pose and generate a sunlit lifestyle lookbook photo",
+      "zh": "帮我搭配一套抖音爆款韩系潮童街拍造型，匹配自然站姿白模，生成阳光草坪实景童模穿搭大片"
+    },
+    {
+      "en": "Combine a Hannam-dong luxury tweed outfit with a cafe steps leg-lengthening sitting pose and generate a high-end Xiaohongshu OOTD photo",
+      "zh": "搭配一套汉南洞财阀千金小香风套装与网红咖啡馆台阶对角线伸腿坐姿，生成小红书百万赞千金风实景大片"
+    }
+  ]
+}

@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.5.0)
-100% Original Copyrighted Assets + Daily Douyin/Xiaohongshu Influencer Expansion | Author: tcccE
+AI Pose & Outfit Reference Studio CLI (Commercial Edition v1.6.0)
+100% Original Copyrighted Assets + Daily Douyin/Xiaohongshu Cloud Hot-Sync | Author: tcccE
 
 Commands:
   stats     : View catalog counts, category breakdown, and 16 style presets
+  sync      : Force hot-sync latest daily JSON catalogs from GitHub cloud repo
   search    : Multi-dimensional filtering across pose / costume / anime / portrait
   detail    : Inspect full metadata and prompt tags for specific asset ID(s)
   random    : Randomly pick matching assets for inspiration
@@ -163,6 +164,68 @@ def ensure_pillow():
 
 
 _CATALOG_CACHE: Dict[str, List[Dict[str, Any]]] = {}
+_CLOUD_SYNC_ATTEMPTED: set = set()
+CLOUD_CATALOG_DIR = CACHE_DIR / "catalogs"
+CLOUD_CATALOG_TTL = 6 * 3600  # Auto hot-sync from GitHub every 6 hours
+
+
+def _extract_catalog_list(data: Any) -> List[Dict[str, Any]]:
+    if isinstance(data, dict):
+        for k in ("items", "data", "poses", "costumes", "portraits"):
+            if k in data and isinstance(data[k], list):
+                return data[k]
+    elif isinstance(data, list):
+        return data
+    return []
+
+
+def sync_cloud_catalog(asset_type: str, force: bool = False, timeout: float = 3.0) -> Optional[Path]:
+    """
+    Pull latest daily updated JSON catalog from GitHub (ArcueidA/ai-pose-studio) into local cache.
+    Allows installed Skill/Expert packages to receive new daily poses & outfits without re-installing zip.
+    """
+    local_path = DATA_FILES.get(asset_type)
+    if not local_path:
+        return None
+    fname = local_path.name
+    CLOUD_CATALOG_DIR.mkdir(parents=True, exist_ok=True)
+    cached_json = CLOUD_CATALOG_DIR / fname
+
+    if not force:
+        if asset_type in _CLOUD_SYNC_ATTEMPTED:
+            return cached_json if cached_json.exists() else None
+        if cached_json.exists():
+            age = time.time() - cached_json.stat().st_mtime
+            if age < CLOUD_CATALOG_TTL:
+                return cached_json
+
+    _CLOUD_SYNC_ATTEMPTED.add(asset_type)
+    rel_cloud = f"ai-pose-outfit-studio/references/{fname}"
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    for tpl in CDN_TEMPLATES:
+        url = tpl.format(path=urllib.parse.quote(rel_cloud, safe="/-_."))
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 AI-Pose-Outfit-Studio/1.6.0"},
+            )
+            with urllib.request.urlopen(req, timeout=timeout, context=ctx) as resp:
+                raw = resp.read()
+                parsed = json.loads(raw.decode("utf-8"))
+                items = _extract_catalog_list(parsed)
+                if len(items) > 50:
+                    tmp_p = cached_json.with_suffix(".tmp")
+                    with open(tmp_p, "wb") as f:
+                        f.write(raw)
+                    tmp_p.replace(cached_json)
+                    return cached_json
+        except Exception:
+            continue
+
+    return cached_json if cached_json.exists() else None
 
 
 def load_catalog(asset_type: str) -> List[Dict[str, Any]]:
@@ -172,17 +235,37 @@ def load_catalog(asset_type: str) -> List[Dict[str, Any]]:
     if not path or not path.exists():
         raise FileNotFoundError(f"Catalog file not found for '{asset_type}': {path}")
     with open(path, "r", encoding="utf-8") as f:
-        data = json.load(f)
-    res: List[Dict[str, Any]] = []
-    if isinstance(data, dict):
-        for k in ("items", "data", "poses", "costumes", "portraits"):
-            if k in data and isinstance(data[k], list):
-                res = data[k]
-                break
-    elif isinstance(data, list):
-        res = data
-    _CATALOG_CACHE[asset_type] = res
-    return res
+        local_items = _extract_catalog_list(json.load(f))
+
+    # Merge with cloud hot-synced catalog so daily GitHub updates take effect automatically
+    cloud_path = sync_cloud_catalog(asset_type, force=False)
+    if cloud_path and cloud_path.exists():
+        try:
+            with open(cloud_path, "r", encoding="utf-8") as cf:
+                cloud_items = _extract_catalog_list(json.load(cf))
+            if cloud_items:
+                by_id: Dict[str, Dict[str, Any]] = {}
+                order_ids: List[str] = []
+                for it in local_items:
+                    aid = str(it.get("id") or "")
+                    if aid:
+                        by_id[aid] = it
+                        order_ids.append(aid)
+                for cit in cloud_items:
+                    aid = str(cit.get("id") or "")
+                    if not aid:
+                        continue
+                    if aid not in by_id:
+                        by_id[aid] = cit
+                        order_ids.append(aid)
+                    elif "本地路径" not in by_id[aid]:
+                        by_id[aid] = cit
+                local_items = [by_id[k] for k in order_ids]
+        except Exception:
+            pass
+
+    _CATALOG_CACHE[asset_type] = local_items
+    return local_items
 
 
 SYNONYM_MAP: Dict[str, List[str]] = {
@@ -987,14 +1070,52 @@ def cmd_preload(args: argparse.Namespace) -> None:
     )
 
 
+def cmd_sync(_args: argparse.Namespace) -> None:
+    """Force hot-sync all 4 JSON catalogs from GitHub cloud repository."""
+    _CATALOG_CACHE.clear()
+    _CLOUD_SYNC_ATTEMPTED.clear()
+    synced_summary: Dict[str, Any] = {}
+    total = 0
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as ex:
+        fut_map = {
+            ex.submit(sync_cloud_catalog, atype, True, 8.0): atype
+            for atype in ("pose", "costume", "anime", "portrait")
+        }
+        cloud_paths = {fut_map[f]: f.result() for f in concurrent.futures.as_completed(fut_map)}
+
+    for atype in ("pose", "costume", "anime", "portrait"):
+        items = load_catalog(atype)
+        total += len(items)
+        cp = cloud_paths.get(atype)
+        synced_summary[atype] = {
+            "count": len(items),
+            "cloud_cache": str(cp) if cp else "fallback_to_bundled",
+        }
+
+    print(
+        json.dumps(
+            {
+                "status": "ok",
+                "version": "1.6.0",
+                "cloud_repo": f"https://github.com/{GITHUB_OWNER}/{GITHUB_REPO}",
+                "total_assets": total,
+                "catalogs": synced_summary,
+            },
+            ensure_ascii=False,
+            indent=2,
+        )
+    )
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="studio_cli.py",
-        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.5.0)",
+        description="AI Pose & Outfit Reference Studio CLI (Commercial v1.6.0)",
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
     sub.add_parser("stats", help="Show catalog statistics, categories, and 16 style presets")
+    sub.add_parser("sync", help="Force hot-sync latest daily JSON catalogs from GitHub cloud repository")
 
     p_search = sub.add_parser("search", help="Search across pose/costume/anime/portrait catalogs")
     p_search.add_argument("keywords", nargs="*", help="Optional positional search keywords")
@@ -1052,6 +1173,7 @@ def main() -> None:
     args = parser.parse_args()
     dispatch = {
         "stats": cmd_stats,
+        "sync": cmd_sync,
         "search": cmd_search,
         "detail": cmd_detail,
         "random": cmd_random,

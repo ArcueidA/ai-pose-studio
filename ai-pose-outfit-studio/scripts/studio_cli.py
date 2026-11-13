@@ -428,7 +428,7 @@ def item_summary(atype: str, item: Dict[str, Any]) -> Dict[str, Any]:
 def cmd_stats(_args: argparse.Namespace) -> None:
     report: Dict[str, Any] = {
         "skill": "ai-pose-outfit-studio",
-        "version": "1.5.0",
+        "version": "1.6.0",
         "author": "tcccE",
         "copyright": "100% Original Owned Assets + Daily Douyin/Xiaohongshu Influencer Expansion",
         "cache_dir": str(CACHE_DIR),

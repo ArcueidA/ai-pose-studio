@@ -2,10 +2,10 @@
 name: ai-pose-outfit-studio
 display_name: AI人像姿势与穿搭造型工坊
 display_name_en: AI Pose & Outfit Reference Studio
-description: 内置4833+组100%原创3D动作姿势白模（含单人/双人正面、侧面、斜侧、俯视、仰视5机位、1459+张ControlNet深度图及抖音/小红书网红爆款街拍姿势）、四季时装与网红爆款穿搭人台、二次元亚文化潮服设定集、正脸网红妆造发型模特全量参考库（支持每日自动增量扩充），支持多维检索、0.2秒一键合成三合一参考拼图、Scene-First三维实景光影融合与商业级穿搭大片极速直出。触发词：姿势参考、人像姿势、3D白模、穿搭参考、网红穿搭、小红书穿搭、抖音街拍、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
-description_zh: 提供4833+组原创3D动作白模（含5机位、ControlNet深度图与抖音/小红书网红街拍姿势）、四季与网红爆款穿搭人台、二次元设定与正脸发型库，0.2秒合成三合一参考板并直出商业级人像穿搭大片。
-description_en: Complete 4,833+ original 3D pose mannequins (5 angles, ControlNet depth maps & viral Douyin/Xiaohongshu street poses), full-category & influencer outfits, anime costume sheets, and portrait hairstyle models with 0.2s 3-in-1 reference stitching and Scene-First photorealistic generation.
-version: 1.5.0
+description: 内置4911+组100%原创3D动作姿势白模（含单人/双人正面、侧面、斜侧、俯视、仰视5机位、1489+张ControlNet深度图及抖音/小红书网红爆款街拍姿势）、四季时装与网红爆款穿搭人台、二次元亚文化潮服设定集、正脸网红妆造发型模特全量参考库（支持每日自动增量扩充），支持多维检索、0.2秒一键合成三合一参考拼图、Scene-First三维实景光影融合与商业级穿搭大片极速直出。触发词：姿势参考、人像姿势、3D白模、穿搭参考、网红穿搭、小红书穿搭、抖音街拍、模特换装、二次元服装设定、发型参考、三合一拼图、电商模特套图、pose studio。
+description_zh: 提供4911+组原创3D动作白模（含5机位、ControlNet深度图与抖音/小红书网红街拍姿势）、四季与网红爆款穿搭人台、二次元设定与正脸发型库，0.2秒合成三合一参考板并直出商业级人像穿搭大片。
+description_en: Complete 4,911+ original 3D pose mannequins (5 angles, ControlNet depth maps & viral Douyin/Xiaohongshu street poses), full-category & influencer outfits, anime costume sheets, and portrait hairstyle models with 0.2s 3-in-1 reference stitching and Scene-First photorealistic generation.
+version: 1.6.0
 author: "tcccE"
 allowed-tools: Bash, Read, ViewImage, ImageGen, present_files
 examples_zh:
